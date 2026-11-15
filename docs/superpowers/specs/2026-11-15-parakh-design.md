@@ -1,7 +1,7 @@
 # Parakh design
 
 Date: 2026-11-15
-Status: **draft, awaiting Yatin's approval**
+Status: **approved by Yatin, 2026-11-15**
 Inputs: [CLAUDE.md](../../../CLAUDE.md), [Calibrate analysis](../../research/2026-11-15-calibrate-analysis.md), [free-tier notes](../../research/2026-11-15-free-tier-and-platform-notes.md)
 Knowledge graph: [docs/kg](../../kg/README.md)
 
@@ -432,3 +432,4 @@ Exact Groq chat model id; threshold tuning (-45 dBFS, 800 ms, 2 s); HTML styling
 - Research notes go in `docs/research/YYYY-MM-DD-*.md`, specs in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`, how-tos (key setup, WSL Calibrate, running the agent) in `docs/runbooks/`.
 - Every milestone adds or updates nodes in `docs/kg/graph.yaml`: components, decisions, risks and their edges.
 - Commits follow Conventional Commits and are pushed to `main`.
+- No emojis anywhere in the project: code, comments, docs, commit messages, CI output, reports. The README is technical and professional.
