@@ -39,6 +39,8 @@ nodes:
 
   - {id: t_kg_render, type: component, label: "KG renderer", summary: "Validates graph.yaml and generates the Mermaid views in docs/kg/README.md; --check in CI.", path: tools/kg_render.py}
 
+  - {id: t_check_keys, type: component, label: "Key check", summary: "Lists Groq models to verify GROQ_API_KEY; sends no data; never prints the key.", path: tools/check_keys.py}
+
   # --- externals ---
   - {id: x_groq, type: external, label: "Groq", summary: "Whisper STT + chat LLM. Free tier, no training per policy. Limits per org."}
   - {id: x_gemini, type: external, label: "Gemini API", summary: "Judge fallback. Free tier may train on inputs."}
@@ -79,6 +81,8 @@ nodes:
   - {id: doc_calibrate, type: doc, label: "Calibrate analysis", path: docs/research/2026-11-15-calibrate-analysis.md}
   - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
 
+  - {id: doc_runbook_keys, type: doc, label: "API keys runbook", path: docs/runbooks/api-keys.md}
+
   # --- milestones ---
   - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run"}
   - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER"}
@@ -114,6 +118,10 @@ edges:
   - {from: t_kg_render, to: d8, rel: decided_by}
   - {from: ci, to: t_kg_render, rel: calls}
   - {from: t_kg_render, to: m0, rel: delivered_in}
+  - {from: t_check_keys, to: x_groq, rel: calls}
+  - {from: t_check_keys, to: c_secrets, rel: constrained_by}
+  - {from: t_check_keys, to: m0, rel: delivered_in}
+  - {from: x_groq, to: doc_runbook_keys, rel: documented_in}
   # externals
   - {from: tts_cache, to: x_edge_tts, rel: depends_on}
   - {from: tts_cache, to: x_parler, rel: depends_on}

@@ -35,6 +35,7 @@ flowchart LR
   score_latency["Latency scorer"]
   score_task["Task success"]
   score_wer["WER scorer"]
+  t_check_keys["Key check"]
   t_kg_render["KG renderer"]
   t_no_emoji["No-emoji guard"]
   test_agent["Clinic test agent"]
@@ -74,6 +75,7 @@ flowchart LR
   score_task -->|produces| report
   score_wer -->|depends_on| normalizer
   score_wer -->|produces| report
+  t_check_keys -->|calls| x_groq
   test_agent -->|calls| mock_hms
   test_agent -->|compatible_with| x_calibrate
   test_agent -->|depends_on| x_edge_tts
@@ -127,6 +129,7 @@ flowchart TB
   r_windows_install>"Windows install gaps"]
   scenario["Scenario loader"]
   score_wer["WER scorer"]
+  t_check_keys["Key check"]
   t_kg_render["KG renderer"]
   test_agent["Clinic test agent"]
   tts_cache["Caller TTS + cache"]
@@ -154,6 +157,7 @@ flowchart TB
   scenario -->|decided_by| d4
   score_wer -->|decided_by| d11
   score_wer -->|mitigates| r_alignment
+  t_check_keys -->|constrained_by| c_secrets
   t_kg_render -->|decided_by| d8
   test_agent -->|decided_by| d5
   tts_cache -->|decided_by| d9
@@ -179,6 +183,7 @@ flowchart LR
   subgraph g_m0[" "]
     m0(("M0 Foundations + Task 1 run"))
     ci["GitHub Actions"]
+    t_check_keys["Key check"]
     t_kg_render["KG renderer"]
     t_no_emoji["No-emoji guard"]
     x_calibrate{{"Calibrate"}}
