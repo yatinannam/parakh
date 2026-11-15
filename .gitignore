@@ -1,0 +1,26 @@
+# Secrets
+.env
+!.env.example
+
+# Environments and caches
+.venv/
+.cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# Run artefacts and private data
+runs/
+data/real/
+
+# OS files
+Thumbs.db
+.DS_Store
