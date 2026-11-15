@@ -1,0 +1,53 @@
+[project]
+name = "parakh"
+version = "0.0.1"
+description = "Test voice agents on Indian speech: Hinglish code-mixing, phone-quality audio and interruptions."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Yatin Annam" }]
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+parakh = "parakh.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "pre-commit>=3.7",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parakh"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Ruff formats Python blocks inside Markdown; docs hold illustrative snippets, not project code.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src", "tools", "tests"]
+exclude = ["tools/calibrate_eval"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
