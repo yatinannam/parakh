@@ -1,0 +1,168 @@
+# Parakh knowledge graph: source of truth.
+# docs/kg/README.md holds a Mermaid view of this file. Until the render
+# script exists (M0), update the README view by hand when you change this.
+#
+# Node types: constraint, component, external, decision, risk, doc, milestone
+# Edge rels:  depends_on, calls, produces, consumes, constrained_by,
+#             decided_by, mitigates, documented_in, delivered_in, compatible_with
+schema_version: 1
+updated: 2026-11-15
+
+nodes:
+  # --- constraints (CLAUDE.md) ---
+  - {id: c_free, type: constraint, label: "Free only, no card", summary: "Free API tiers only (Groq, Gemini). Stop if any step asks for a card."}
+  - {id: c_cpu, type: constraint, label: "CPU only, 16 GB", summary: "Core Ultra 5 225U, no GPU. Never run Parler and Whisper together."}
+  - {id: c_synthetic, type: constraint, label: "Synthetic data to free LLM APIs", summary: "Free tiers may train on inputs."}
+  - {id: c_secrets, type: constraint, label: "No secrets in git", summary: ".env gitignored; gitleaks; push protection."}
+  - {id: c_mit, type: constraint, label: "MIT, no Calibrate code", summary: "Calibrate is CC-BY-SA-4.0. Clean room."}
+  - {id: c_windows, type: constraint, label: "Windows dev box", summary: "Timer granularity, CRLF, paths with spaces."}
+
+  # --- components ---
+  - {id: scenario, type: component, label: "Scenario loader", summary: "YAML + pydantic, schema_version.", path: src/parakh/scenario}
+  - {id: tts_cache, type: component, label: "Caller TTS + cache", summary: "edge-tts now, Parler later; sha256 cache; speech_end_ms.", path: src/parakh/tts}
+  - {id: degrader, type: component, label: "Degrader", summary: "Band-limit, 8 kHz, mu-law, noise at SNR, packet loss, clipping; seeded presets.", path: src/parakh/degrade}
+  - {id: call_driver, type: component, label: "Call driver", summary: "Pipecat protobuf WS client; 20 ms pacer; virtual playback clock; turn-taking; barge-in; recorder.", path: src/parakh/transport}
+  - {id: test_agent, type: component, label: "Clinic test agent", summary: "Pipecat bot: Silero VAD, Groq STT + LLM, edge-tts TTS.", path: agents/clinic_agent}
+  - {id: mock_hms, type: component, label: "Mock HMS", summary: "Hospital management system stub: FastAPI + SQLite; reset/state.", path: services/mock_hms}
+  - {id: end_state_adapter, type: component, label: "EndStateAdapter", summary: "reset(seed, clock), fetch_state(). MockHmsAdapter first.", path: src/parakh/adapters}
+  - {id: score_latency, type: component, label: "Latency scorer", summary: "Speech end to first agent audio > -45 dBFS; p50/p95; barge-in stop latency.", path: src/parakh/score}
+  - {id: normalizer, type: component, label: "Script-tolerant normaliser", summary: "NFC, numbers, Indic to Roman, loose phonetic key, variant table, skeleton match.", path: src/parakh/score}
+  - {id: score_wer, type: component, label: "WER scorer", summary: "Strict + loose WER/CER on agent's own transcript; conversation-level headline.", path: src/parakh/score}
+  - {id: score_task, type: component, label: "Task success", summary: "Final HMS state vs expect; pass/fail + diff.", path: src/parakh/score}
+  - {id: judge, type: component, label: "LLM judge", summary: "Groq first, Gemini fallback; JSON rubric; advisory only.", path: src/parakh/judge}
+  - {id: budget, type: component, label: "Budget + quota guard", summary: "Estimate, token buckets, daily counter, 429 backoff, remote_call() choke point.", path: src/parakh/budget}
+  - {id: report, type: component, label: "Report", summary: "report.json (versioned) + self-contained report.html + preset comparison.", path: src/parakh/report}
+  - {id: cli, type: component, label: "CLI", summary: "Typer: tts build, degrade, run, report, budget, hms serve.", path: src/parakh/cli.py}
+  - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml (ubuntu+windows, no secrets); e2e.yml (manual/nightly, main only).", path: .github/workflows}
+
+  # --- externals ---
+  - {id: x_groq, type: external, label: "Groq", summary: "Whisper STT + chat LLM. Free tier, no training per policy. Limits per org."}
+  - {id: x_gemini, type: external, label: "Gemini API", summary: "Judge fallback. Free tier may train on inputs."}
+  - {id: x_openrouter, type: external, label: "OpenRouter :free", summary: "Task 1 only. About 50 req/day."}
+  - {id: x_edge_tts, type: external, label: "edge-tts", summary: "LGPL-3.0, unofficial MS read-aloud. No key."}
+  - {id: x_parler, type: external, label: "Indic Parler-TTS", summary: "Apache-2.0, CPU speed unknown; offline only."}
+  - {id: x_whisper, type: external, label: "faster-whisper small int8", summary: "Local CPU scoring of agent replies without text."}
+  - {id: x_pipecat, type: external, label: "Pipecat", summary: "BSD-2. Protobuf frames: Text, AudioRaw, Transcription, Message, Interruption."}
+  - {id: x_calibrate, type: external, label: "Calibrate", summary: "CC-BY-SA eval framework. Lacks codec/noise, Hinglish scoring for external agents, free voice path."}
+  - {id: x_indic_translit, type: external, label: "indic-transliteration", summary: "MIT. Devanagari/Kannada/Tamil to Roman."}
+  - {id: x_wsl, type: external, label: "WSL2 Ubuntu", summary: "Hosts Calibrate install (simpleaudio needs Linux build)."}
+
+  # --- decisions ---
+  - {id: d1, type: decision, label: "D1 Standalone, Pipecat-compatible", summary: "Chosen by Yatin over add-on or own protocol.", by: yatin}
+  - {id: d2, type: decision, label: "D2 Calibrate text sim in WSL", summary: "Free path for Task 1 run.", by: yatin}
+  - {id: d3, type: decision, label: "D3 HMS = hospital mgmt system", summary: "Mock HMS + adapter, clinic domain.", by: yatin}
+  - {id: d4, type: decision, label: "D4 Scripted caller", summary: "Pre-generated audio; LLM caller later.", by: claude}
+  - {id: d5, type: decision, label: "D5 Test agent stack", summary: "Silero, Groq STT/LLM, edge-tts.", by: claude}
+  - {id: d6, type: decision, label: "D6 Judge Groq then Gemini", summary: "", by: claude}
+  - {id: d8, type: decision, label: "D8 KG as YAML + Mermaid", summary: "This file.", by: claude}
+  - {id: d9, type: decision, label: "D9 Pack ships text, not edge-tts audio", summary: "edge-tts output terms unclear.", by: claude}
+  - {id: d10, type: decision, label: "D10 Real recordings stay local", summary: "Synthetic script, real voice, local STT.", by: claude}
+  - {id: d11, type: decision, label: "D11 Headline = conversation loose WER", summary: "Agent's own transcript only.", by: claude}
+
+  # --- risks (edge-case groups, see spec section 11) ---
+  - {id: r_timing, type: risk, label: "Timing accuracy", summary: "EC-02, EC-28, EC-36, EC-37, EC-39."}
+  - {id: r_quota, type: risk, label: "Free-tier quota", summary: "EC-10..EC-15, EC-71."}
+  - {id: r_script, type: risk, label: "Script/spelling mismatch", summary: "EC-40..EC-44, EC-49."}
+  - {id: r_alignment, type: risk, label: "Turn alignment", summary: "EC-33, EC-47."}
+  - {id: r_injection, type: risk, label: "Judge prompt injection", summary: "EC-50."}
+  - {id: r_license, type: risk, label: "Licence contamination", summary: "EC-61..EC-64."}
+  - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60."}
+  - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
+
+  # --- docs ---
+  - {id: doc_spec, type: doc, label: "Design spec", path: docs/superpowers/specs/2026-11-15-parakh-design.md}
+  - {id: doc_calibrate, type: doc, label: "Calibrate analysis", path: docs/research/2026-11-15-calibrate-analysis.md}
+  - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
+
+  # --- milestones ---
+  - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run"}
+  - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER"}
+  - {id: m2, type: milestone, label: "M2 Degradation + interruptions"}
+  - {id: m3, type: milestone, label: "M3 Indic layer + judge"}
+  - {id: m4, type: milestone, label: "M4 HMS adapter + CI e2e"}
+  - {id: m5, type: milestone, label: "M5 Public release"}
+
+edges:
+  # pipeline flow
+  - {from: scenario, to: tts_cache, rel: produces}
+  - {from: tts_cache, to: degrader, rel: produces}
+  - {from: degrader, to: call_driver, rel: produces}
+  - {from: call_driver, to: test_agent, rel: calls}
+  - {from: test_agent, to: mock_hms, rel: calls}
+  - {from: call_driver, to: score_latency, rel: produces}
+  - {from: call_driver, to: score_wer, rel: produces}
+  - {from: score_wer, to: normalizer, rel: depends_on}
+  - {from: score_task, to: end_state_adapter, rel: depends_on}
+  - {from: end_state_adapter, to: mock_hms, rel: calls}
+  - {from: call_driver, to: judge, rel: produces}
+  - {from: score_latency, to: report, rel: produces}
+  - {from: score_wer, to: report, rel: produces}
+  - {from: score_task, to: report, rel: produces}
+  - {from: judge, to: report, rel: produces}
+  - {from: cli, to: call_driver, rel: calls}
+  - {from: cli, to: budget, rel: calls}
+  - {from: ci, to: cli, rel: calls}
+  # externals
+  - {from: tts_cache, to: x_edge_tts, rel: depends_on}
+  - {from: tts_cache, to: x_parler, rel: depends_on}
+  - {from: call_driver, to: x_pipecat, rel: depends_on}
+  - {from: test_agent, to: x_pipecat, rel: depends_on}
+  - {from: test_agent, to: x_groq, rel: calls}
+  - {from: test_agent, to: x_edge_tts, rel: depends_on}
+  - {from: judge, to: x_groq, rel: calls}
+  - {from: judge, to: x_gemini, rel: calls}
+  - {from: report, to: x_whisper, rel: depends_on}
+  - {from: normalizer, to: x_indic_translit, rel: depends_on}
+  - {from: x_calibrate, to: x_wsl, rel: depends_on}
+  - {from: test_agent, to: x_calibrate, rel: compatible_with}
+  - {from: budget, to: x_groq, rel: constrained_by}
+  # constraints
+  - {from: judge, to: c_synthetic, rel: constrained_by}
+  - {from: budget, to: c_free, rel: constrained_by}
+  - {from: budget, to: c_synthetic, rel: constrained_by}
+  - {from: x_whisper, to: c_cpu, rel: constrained_by}
+  - {from: x_parler, to: c_cpu, rel: constrained_by}
+  - {from: call_driver, to: c_windows, rel: constrained_by}
+  - {from: ci, to: c_secrets, rel: constrained_by}
+  - {from: x_calibrate, to: c_mit, rel: constrained_by}
+  # decisions
+  - {from: call_driver, to: d1, rel: decided_by}
+  - {from: x_calibrate, to: d2, rel: decided_by}
+  - {from: mock_hms, to: d3, rel: decided_by}
+  - {from: scenario, to: d4, rel: decided_by}
+  - {from: test_agent, to: d5, rel: decided_by}
+  - {from: judge, to: d6, rel: decided_by}
+  - {from: tts_cache, to: d9, rel: decided_by}
+  - {from: budget, to: d10, rel: decided_by}
+  - {from: score_wer, to: d11, rel: decided_by}
+  # risk mitigation
+  - {from: call_driver, to: r_timing, rel: mitigates}
+  - {from: budget, to: r_quota, rel: mitigates}
+  - {from: normalizer, to: r_script, rel: mitigates}
+  - {from: score_wer, to: r_alignment, rel: mitigates}
+  - {from: judge, to: r_injection, rel: mitigates}
+  - {from: d9, to: r_license, rel: mitigates}
+  - {from: d10, to: r_privacy, rel: mitigates}
+  - {from: x_wsl, to: r_windows_install, rel: mitigates}
+  # docs
+  - {from: x_calibrate, to: doc_calibrate, rel: documented_in}
+  - {from: x_groq, to: doc_free, rel: documented_in}
+  - {from: d1, to: doc_spec, rel: documented_in}
+  # milestones
+  - {from: x_calibrate, to: m0, rel: delivered_in}
+  - {from: scenario, to: m1, rel: delivered_in}
+  - {from: tts_cache, to: m1, rel: delivered_in}
+  - {from: call_driver, to: m1, rel: delivered_in}
+  - {from: test_agent, to: m1, rel: delivered_in}
+  - {from: score_latency, to: m1, rel: delivered_in}
+  - {from: score_wer, to: m1, rel: delivered_in}
+  - {from: report, to: m1, rel: delivered_in}
+  - {from: cli, to: m1, rel: delivered_in}
+  - {from: budget, to: m1, rel: delivered_in}
+  - {from: degrader, to: m2, rel: delivered_in}
+  - {from: normalizer, to: m3, rel: delivered_in}
+  - {from: judge, to: m3, rel: delivered_in}
+  - {from: mock_hms, to: m4, rel: delivered_in}
+  - {from: end_state_adapter, to: m4, rel: delivered_in}
+  - {from: score_task, to: m4, rel: delivered_in}
+  - {from: ci, to: m4, rel: delivered_in}
