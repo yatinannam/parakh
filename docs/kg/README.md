@@ -125,6 +125,7 @@ flowchart TB
   r_privacy>"Real data leakage"]
   r_quota>"Free-tier quota"]
   r_script>"Script/spelling mismatch"]
+  r_supply_chain>"CI supply chain"]
   r_timing>"Timing accuracy"]
   r_windows_install>"Windows install gaps"]
   scenario["Scenario loader"]
@@ -146,6 +147,7 @@ flowchart TB
   call_driver -->|mitigates| r_timing
   ci -->|constrained_by| c_secrets
   ci -->|decided_by| d12
+  ci -->|mitigates| r_supply_chain
   d1 -->|documented_in| doc_spec
   d10 -->|mitigates| r_privacy
   d9 -->|mitigates| r_license

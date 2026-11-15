@@ -76,6 +76,7 @@ nodes:
   - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60."}
   - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
 
+  - {id: r_supply_chain, type: risk, label: "CI supply chain", summary: "EC-75: moved Action tags. Mitigated by SHA pins and Dependabot."}
   # --- docs ---
   - {id: doc_spec, type: doc, label: "Design spec", path: docs/superpowers/specs/2026-11-15-parakh-design.md}
   - {id: doc_calibrate, type: doc, label: "Calibrate analysis", path: docs/research/2026-11-15-calibrate-analysis.md}
@@ -164,6 +165,7 @@ edges:
   - {from: d9, to: r_license, rel: mitigates}
   - {from: d10, to: r_privacy, rel: mitigates}
   - {from: x_wsl, to: r_windows_install, rel: mitigates}
+  - {from: ci, to: r_supply_chain, rel: mitigates}
   # docs
   - {from: x_calibrate, to: doc_calibrate, rel: documented_in}
   - {from: x_groq, to: doc_free, rel: documented_in}

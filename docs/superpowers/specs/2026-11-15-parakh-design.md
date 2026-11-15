@@ -393,6 +393,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-72 | Whisper model download on every CI run. | `actions/cache`. | M4 |
 | EC-73 | edge-tts blocked from runner IPs. | Audio built in the job and kept in `actions/cache`. A cache miss while edge-tts is blocked gives `skipped_infra`. Never a public release asset (D9). | M4 |
 | EC-74 | Flaky latency numbers in CI. | CI asserts the pipeline works, never latency values. | M4 |
+| EC-75 | A third-party Action tag is moved to malicious code (supply chain). | Every `uses:` pinned to a full commit SHA with the version as a comment; Dependabot (`.github/dependabot.yml`) proposes weekly pin updates. | M0 |
 
 ## 12. Decisions
 
