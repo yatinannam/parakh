@@ -57,6 +57,7 @@ flowchart TB
     d9[D9 Pack ships text only]
     d10[D10 Real recordings stay local]
     d11[D11 Conversation loose WER]
+    d12[D12 Audience: portfolio first]
   end
   subgraph Risks
     r_timing[Timing accuracy]
@@ -79,7 +80,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  m0[M0 Foundations + Task 1] --> m1[M1 MVP] --> m2[M2 Degradation] --> m3[M3 Indic + judge] --> m4[M4 HMS + CI] --> m5[M5 Release]
+  m0[M0 Foundations + Task 1] --> m1[M1 MVP] --> m2[M2 Degradation] --> m3[M3 Indic + judge] --> m4[M4 HMS + CI] --> m5[M5 Release] --> backlog[Backlog: 100ms, reusable Action, PyPI]
 ```
 
 ## How to update

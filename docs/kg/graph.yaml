@@ -50,7 +50,8 @@ nodes:
   # --- decisions ---
   - {id: d1, type: decision, label: "D1 Standalone, Pipecat-compatible", summary: "Chosen by Yatin over add-on or own protocol.", by: yatin}
   - {id: d2, type: decision, label: "D2 Calibrate text sim in WSL", summary: "Free path for Task 1 run.", by: yatin}
-  - {id: d3, type: decision, label: "D3 HMS = hospital mgmt system", summary: "Mock HMS + adapter, clinic domain.", by: yatin}
+  - {id: d3, type: decision, label: "D3 HMS = hospital mgmt system", summary: "Mock HMS + adapter, clinic domain, M4. 100ms reading moved to backlog.", by: claude_delegated}
+  - {id: d12, type: decision, label: "D12 Audience: portfolio first", summary: "Own CI only; threshold exit codes in M4; reusable Action + PyPI on backlog.", by: claude_delegated}
   - {id: d4, type: decision, label: "D4 Scripted caller", summary: "Pre-generated audio; LLM caller later.", by: claude}
   - {id: d5, type: decision, label: "D5 Test agent stack", summary: "Silero, Groq STT/LLM, edge-tts.", by: claude}
   - {id: d6, type: decision, label: "D6 Judge Groq then Gemini", summary: "", by: claude}
@@ -81,6 +82,8 @@ nodes:
   - {id: m3, type: milestone, label: "M3 Indic layer + judge"}
   - {id: m4, type: milestone, label: "M4 HMS adapter + CI e2e"}
   - {id: m5, type: milestone, label: "M5 Public release"}
+  - {id: backlog, type: milestone, label: "Backlog (after M5)", summary: "100ms adapter, reusable Action + PyPI, telephony WS formats, LLM caller, echo preset."}
+  - {id: x_100ms, type: external, label: "100ms", summary: "WebRTC rooms, SDK classes HMS*. Candidate transport adapter; free tier unchecked."}
 
 edges:
   # pipeline flow
@@ -166,3 +169,6 @@ edges:
   - {from: end_state_adapter, to: m4, rel: delivered_in}
   - {from: score_task, to: m4, rel: delivered_in}
   - {from: ci, to: m4, rel: delivered_in}
+  - {from: ci, to: d12, rel: decided_by}
+  - {from: x_100ms, to: backlog, rel: delivered_in}
+  - {from: m5, to: backlog, rel: depends_on}
