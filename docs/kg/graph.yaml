@@ -33,7 +33,7 @@ nodes:
   - {id: budget, type: component, label: "Budget + quota guard", summary: "Estimate, token buckets, daily counter, 429 backoff, remote_call() choke point.", path: src/parakh/budget}
   - {id: report, type: component, label: "Report", summary: "report.json (versioned) + self-contained report.html + preset comparison.", path: src/parakh/report}
   - {id: cli, type: component, label: "CLI", summary: "Typer: tts build, degrade, run, report, budget, hms serve.", path: src/parakh/cli.py}
-  - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml (ubuntu+windows, no secrets); e2e.yml (manual/nightly, main only).", path: .github/workflows}
+  - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml: test (ubuntu, windows), secrets (gitleaks); e2e.yml in M4.", path: .github/workflows}
 
   - {id: t_no_emoji, type: component, label: "No-emoji guard", summary: "Fails on emoji in tracked text files; run in pre-commit and CI.", path: tools/no_emoji.py}
 
@@ -177,6 +177,7 @@ edges:
   - {from: mock_hms, to: m4, rel: delivered_in}
   - {from: end_state_adapter, to: m4, rel: delivered_in}
   - {from: score_task, to: m4, rel: delivered_in}
+  - {from: ci, to: m0, rel: delivered_in}
   - {from: ci, to: m4, rel: delivered_in}
   - {from: ci, to: d12, rel: decided_by}
   - {from: x_100ms, to: backlog, rel: delivered_in}

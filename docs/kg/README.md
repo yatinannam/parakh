@@ -178,6 +178,7 @@ flowchart LR
   end
   subgraph g_m0[" "]
     m0(("M0 Foundations + Task 1 run"))
+    ci["GitHub Actions"]
     t_kg_render["KG renderer"]
     t_no_emoji["No-emoji guard"]
     x_calibrate{{"Calibrate"}}
@@ -205,7 +206,6 @@ flowchart LR
   end
   subgraph g_m4[" "]
     m4(("M4 HMS adapter + CI e2e"))
-    ci["GitHub Actions"]
     end_state_adapter["EndStateAdapter"]
     mock_hms["Mock HMS"]
     score_task["Task success"]
