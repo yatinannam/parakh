@@ -144,14 +144,14 @@ def test_plain_text_clean():
     assert find_emoji("Latency p95 is 840 ms.\n") == []
 
 def test_emoji_flagged_with_position():
-    assert find_emoji("ok\nall good ✅\n") == [(2, 10, "✅")]
+    assert find_emoji("ok\nall good \u2705\n") == [(2, 10, "\u2705")]
 
 def test_flag_and_star_and_pictograph_flagged():
-    hits = find_emoji("\U0001F1EE\U0001F1F3 ⭐ \U0001F680")
-    assert {h[2] for h in hits} >= {"\U0001F1EE", "⭐", "\U0001F680"}
+    hits = find_emoji("\U0001F1EE\U0001F1F3 \u2b50 \U0001F680")
+    assert {h[2] for h in hits} >= {"\U0001F1EE", "\u2b50", "\U0001F680"}
 
 def test_variation_selector_flagged():
-    assert find_emoji("❤️")  # heart + VS16
+    assert find_emoji("\u2764\ufe0f")  # heart + VS16
 
 def test_non_emoji_unicode_not_flagged():
     assert find_emoji("दो । ±20 ms 2 × 2 — ₹500 kyā") == []

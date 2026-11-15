@@ -35,6 +35,8 @@ nodes:
   - {id: cli, type: component, label: "CLI", summary: "Typer: tts build, degrade, run, report, budget, hms serve.", path: src/parakh/cli.py}
   - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml (ubuntu+windows, no secrets); e2e.yml (manual/nightly, main only).", path: .github/workflows}
 
+  - {id: t_no_emoji, type: component, label: "No-emoji guard", summary: "Fails on emoji in tracked text files; run in pre-commit and CI.", path: tools/no_emoji.py}
+
   # --- externals ---
   - {id: x_groq, type: external, label: "Groq", summary: "Whisper STT + chat LLM. Free tier, no training per policy. Limits per org."}
   - {id: x_gemini, type: external, label: "Gemini API", summary: "Judge fallback. Free tier may train on inputs."}
@@ -105,6 +107,8 @@ edges:
   - {from: cli, to: call_driver, rel: calls}
   - {from: cli, to: budget, rel: calls}
   - {from: ci, to: cli, rel: calls}
+  - {from: ci, to: t_no_emoji, rel: calls}
+  - {from: t_no_emoji, to: m0, rel: delivered_in}
   # externals
   - {from: tts_cache, to: x_edge_tts, rel: depends_on}
   - {from: tts_cache, to: x_parler, rel: depends_on}
