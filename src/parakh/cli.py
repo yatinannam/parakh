@@ -4,12 +4,15 @@ import asyncio
 from pathlib import Path
 from typing import Annotated
 
+import aiohttp
 import typer
+from edge_tts.exceptions import EdgeTTSException
 
 from parakh import __version__
 from parakh.scenario import load_scenario
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
 from parakh.tts.engine import EdgeTTSEngine, TTSEngine
+from parakh.tts.ffmpeg import FfmpegMissing
 
 app = typer.Typer(help="Test voice agents on Indian speech.", no_args_is_help=True)
 tts_app = typer.Typer(help="Caller audio commands.", no_args_is_help=True)
@@ -59,5 +62,12 @@ def tts_build(
             built += n_built
         return total, built
 
-    total, built = asyncio.run(run())
+    try:
+        total, built = asyncio.run(run())
+    except FfmpegMissing as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    except (OSError, EdgeTTSException, aiohttp.ClientError) as exc:
+        typer.echo(f"tts build failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(2) from exc
     typer.echo(f"{total} clips ({built} built, {total - built} cached)")

@@ -42,7 +42,7 @@ class TTSCache:
     def _load_manifest(self) -> dict[str, dict[str, object]]:
         try:
             data = json.loads(self._manifest_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return data if isinstance(data, dict) else {}
 
@@ -52,7 +52,15 @@ class TTSCache:
         tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, self._manifest_path)
 
-    def _from_entry(self, entry: dict[str, object], turn_index: int) -> CallerClip | None:
+    def _from_entry(self, entry: object, turn_index: int) -> CallerClip | None:
+        try:
+            return self._read_entry(entry, turn_index)
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            return None
+
+    def _read_entry(self, entry: object, turn_index: int) -> CallerClip | None:
+        if not isinstance(entry, dict):
+            return None
         path = self.root / str(entry.get("file", ""))
         if not path.is_file():
             return None

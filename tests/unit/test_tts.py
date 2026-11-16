@@ -79,3 +79,60 @@ def test_tts_build_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(app, ["tts", "build", str(EXAMPLE), "--cache-dir", str(cache_dir)])
     assert result.exit_code == 0, result.output
     assert "4 clips (4 built, 0 cached)" in result.output
+
+
+def test_tts_build_without_ffmpeg_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("parakh.cli.make_engine", lambda: FakeEngine())
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    cache_dir = tmp_path / "dir with space"
+    result = CliRunner().invoke(app, ["tts", "build", str(EXAMPLE), "--cache-dir", str(cache_dir)])
+    assert result.exit_code == 2
+    assert "winget install Gyan.FFmpeg" in result.output
+    assert "Traceback" not in result.output
+
+
+class FailingEngine:
+    name = "failing"
+    version = "1"
+
+    async def synthesize(self, text: str, voice: str, rate: str, pitch: str) -> bytes:
+        raise OSError("network down")
+
+
+def test_tts_build_engine_failure_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("parakh.cli.make_engine", lambda: FailingEngine())
+    cache_dir = tmp_path / "dir with space"
+    result = CliRunner().invoke(app, ["tts", "build", str(EXAMPLE), "--cache-dir", str(cache_dir)])
+    assert result.exit_code == 2
+    assert "tts build failed" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("mode", ["missing_key", "list_entry", "non_numeric"])
+async def test_malformed_manifest_entry_is_rebuilt(tmp_path: Path, mode: str) -> None:
+    cache = TTSCache(tmp_path / "dir with space")
+    engine = FakeEngine()
+    await cache.get(engine, "v", "+0%", "+0Hz", "namaste", 0)
+    manifest_path = cache.root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    key = cache_key("fake", "1", "v", "+0%", "+0Hz", "namaste")
+    if mode == "missing_key":
+        del manifest[key]["speech_end_ms"]
+    elif mode == "list_entry":
+        manifest[key] = []
+    else:
+        manifest[key]["speech_end_ms"] = "abc"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _, built = await cache.get(engine, "v", "+0%", "+0Hz", "namaste", 0)
+    assert built is True
+    assert engine.calls == 2
+
+
+async def test_unreadable_manifest_is_rebuilt(tmp_path: Path) -> None:
+    cache = TTSCache(tmp_path / "dir with space")
+    engine = FakeEngine()
+    await cache.get(engine, "v", "+0%", "+0Hz", "namaste", 0)
+    (cache.root / "manifest.json").write_bytes(b"\xff\xfe\x80\x81")
+    _, built = await cache.get(engine, "v", "+0%", "+0Hz", "namaste", 0)
+    assert built is True
+    assert engine.calls == 2
