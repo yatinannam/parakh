@@ -118,6 +118,7 @@ flowchart TB
   d6[/"D6 Judge Groq then Gemini"/]
   d8[/"D8 KG as YAML + Mermaid"/]
   d9[/"D9 Pack ships text, not edge-tts audio"/]
+  doc_calibrate[("Calibrate analysis")]
   doc_spec[("Design spec")]
   judge["LLM judge"]
   mock_hms["Mock HMS"]
@@ -125,12 +126,14 @@ flowchart TB
   r_alignment>"Turn alignment"]
   r_injection>"Judge prompt injection"]
   r_license>"Licence contamination"]
+  r_llm_behaviour>"Hosted LLM behaviour"]
   r_privacy>"Real data leakage"]
   r_quota>"Free-tier quota"]
   r_script>"Script/spelling mismatch"]
   r_supply_chain>"CI supply chain"]
   r_timing>"Timing accuracy"]
   r_windows_install>"Windows install gaps"]
+  report["Report"]
   scenario["Scenario loader"]
   score_wer["WER scorer"]
   t_calibrate_eval["Calibrate free-model wrapper"]
@@ -160,6 +163,8 @@ flowchart TB
   judge -->|mitigates| r_injection
   mock_hms -->|decided_by| d3
   normalizer -->|mitigates| r_script
+  r_llm_behaviour -->|documented_in| doc_calibrate
+  report -->|mitigates| r_llm_behaviour
   scenario -->|decided_by| d4
   score_wer -->|decided_by| d11
   score_wer -->|mitigates| r_alignment
@@ -169,6 +174,7 @@ flowchart TB
   t_check_keys -->|constrained_by| c_secrets
   t_kg_render -->|decided_by| d8
   test_agent -->|decided_by| d5
+  test_agent -->|mitigates| r_llm_behaviour
   tts_cache -->|decided_by| d9
   x_calibrate -->|constrained_by| c_mit
   x_calibrate -->|decided_by| d2

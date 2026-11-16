@@ -162,7 +162,7 @@ Presets (config, not code): `clean`; `phone` (band-limit, 8 kHz, mu-law); `phone
 A Pipecat bot for a synthetic clinic receptionist ("Parakh Clinic"), served with Pipecat's WebSocket server transport and `ProtobufFrameSerializer`.
 - VAD: Silero (local, ONNX).
 - STT: Groq Whisper (`whisper-large-v3-turbo`, language hint `hi` for Hinglish scenarios). A local faster-whisper STT mode exists for runs with real recordings (D10).
-- LLM: a Groq chat model with function calling. The model id lives in config.
+- LLM: a Groq chat model with function calling. The model id lives in config. The system prompt states how the call opens (the agent greets first) and when it may end (EC-76).
 - TTS: a small custom Pipecat TTS service wrapping edge-tts (MP3 decoded to PCM via an ffmpeg pipe), voice `en-IN-NeerjaNeural` or `hi-IN-SwaraNeural`.
 - Emits RTVI transcription messages, so Parakh can read the agent's own transcript of the caller.
 - MVP tools are in-memory stubs. In M4 the tools call the mock HMS over HTTP.
@@ -394,12 +394,14 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-73 | edge-tts blocked from runner IPs. | Audio built in the job and kept in `actions/cache`. A cache miss while edge-tts is blocked gives `skipped_infra`. Never a public release asset (D9). | M4 |
 | EC-74 | Flaky latency numbers in CI. | CI asserts the pipeline works, never latency values. | M4 |
 | EC-75 | A third-party Action tag is moved to malicious code (supply chain). | Every `uses:` pinned to a full commit SHA with the version as a comment; Dependabot (`.github/dependabot.yml`) proposes weekly pin updates. | M0 |
+| EC-76 | The agent LLM hangs up before the caller speaks (seen in the Task 1 run: an end-call tool called on the first turn). | The test agent's system prompt states how the call opens and when it may end; the call driver reports a hang-up before the first caller turn as its own failure reason, not as a silent pass or a timeout. | M1 |
+| EC-77 | Hosted LLM latency swings within one run (Task 1 saw TTFB from 0.8 s to 58 s on an OpenRouter `:free` model). | The report records the agent's LLM model and, when the agent reports it, its own per-turn TTFB beside end-to-end latency, so provider delay is visible; preset comparisons run back to back in one session. | M1 |
 
 ## 12. Decisions
 
 Decided by Yatin:
 - **D1** Standalone, Pipecat-compatible (approach A).
-- **D2** Task 1 run: Calibrate text simulation in WSL on an OpenRouter `:free` model.
+- **D2** Task 1 run: Calibrate text simulation in WSL on an OpenRouter `:free` model. Done 2026-11-16; results and final verdict in `docs/research/2026-11-15-calibrate-analysis.md`.
 - **D3** "HMS" means hospital management system: a mock HMS service plus an end-state adapter for a clinic-appointment domain, in M4. It gives deterministic task success, which the CLAUDE.md pipeline asks for. The other reading, 100ms (whose SDK classes are `HMS*`), goes on the backlog as a transport adapter. Yatin left the choice to Claude's recommendation.
 - **D0** The repo stays at its current OneDrive path (not syncing). `.venv` and `.cache` live in the repo, gitignored.
 

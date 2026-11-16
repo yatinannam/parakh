@@ -77,19 +77,18 @@ nodes:
   - {id: r_license, type: risk, label: "Licence contamination", summary: "EC-61..EC-64."}
   - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60."}
   - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
-
   - {id: r_supply_chain, type: risk, label: "CI supply chain", summary: "EC-75: moved Action tags. Mitigated by SHA pins and Dependabot."}
+  - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings. Both seen in the Task 1 run."}
+
   # --- docs ---
   - {id: doc_spec, type: doc, label: "Design spec", path: docs/superpowers/specs/2026-11-15-parakh-design.md}
   - {id: doc_calibrate, type: doc, label: "Calibrate analysis", path: docs/research/2026-11-15-calibrate-analysis.md}
   - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
-
   - {id: doc_runbook_keys, type: doc, label: "API keys runbook", path: docs/runbooks/api-keys.md}
-
   - {id: doc_runbook_calibrate, type: doc, label: "Calibrate WSL runbook", path: docs/runbooks/calibrate-wsl.md}
 
   # --- milestones ---
-  - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run"}
+  - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run", summary: "Complete 2026-11-16: repo hygiene, CI, tools, Groq key check, Calibrate text sim on free models, final verdict."}
   - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER"}
   - {id: m2, type: milestone, label: "M2 Degradation + interruptions"}
   - {id: m3, type: milestone, label: "M3 Indic layer + judge"}
@@ -177,6 +176,9 @@ edges:
   - {from: d10, to: r_privacy, rel: mitigates}
   - {from: x_wsl, to: r_windows_install, rel: mitigates}
   - {from: ci, to: r_supply_chain, rel: mitigates}
+  - {from: test_agent, to: r_llm_behaviour, rel: mitigates}
+  - {from: report, to: r_llm_behaviour, rel: mitigates}
+  - {from: r_llm_behaviour, to: doc_calibrate, rel: documented_in}
   # docs
   - {from: x_calibrate, to: doc_calibrate, rel: documented_in}
   - {from: x_groq, to: doc_free, rel: documented_in}
