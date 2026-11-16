@@ -41,7 +41,7 @@ nodes:
 
   - {id: t_check_keys, type: component, label: "Key check", summary: "Lists Groq models to verify GROQ_API_KEY; sends no data; never prints the key.", path: tools/check_keys.py}
 
-  - {id: t_calibrate_eval, type: component, label: "Calibrate free-model wrapper", summary: "WSL-only MIT wrapper: forces one :free model onto agent, user and judge fallback; removes ENABLE_TRACING; synthetic config.", path: tools/calibrate_eval}
+  - {id: t_calibrate_eval, type: component, label: "Calibrate free-model wrapper", summary: "WSL-only MIT wrapper: forces one :free model onto agent, user and judge fallback; refuses agent_url and non-free judge_model configs; removes ENABLE_TRACING; synthetic config.", path: tools/calibrate_eval}
 
   # --- externals ---
   - {id: x_groq, type: external, label: "Groq", summary: "Whisper STT + chat LLM. Free tier, no training per policy. Limits per org."}
@@ -77,7 +77,7 @@ nodes:
   - {id: r_license, type: risk, label: "Licence contamination", summary: "EC-61..EC-64."}
   - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60."}
   - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
-  - {id: r_supply_chain, type: risk, label: "CI supply chain", summary: "EC-75: moved Action tags. Mitigated by SHA pins and Dependabot."}
+  - {id: r_supply_chain, type: risk, label: "Supply chain (CI and hooks)", summary: "EC-75: moved Action or hook tags. Actions and pre-commit hooks SHA-pinned, guarded by tests/unit/test_supply_chain_pins.py; Dependabot for Actions."}
   - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings. Both seen in the Task 1 run."}
 
   # --- docs ---

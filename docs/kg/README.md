@@ -130,7 +130,7 @@ flowchart TB
   r_privacy>"Real data leakage"]
   r_quota>"Free-tier quota"]
   r_script>"Script/spelling mismatch"]
-  r_supply_chain>"CI supply chain"]
+  r_supply_chain>"Supply chain (CI and hooks)"]
   r_timing>"Timing accuracy"]
   r_windows_install>"Windows install gaps"]
   report["Report"]
