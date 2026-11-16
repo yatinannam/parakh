@@ -42,11 +42,68 @@ def test_bot_stopped_ends_reply_early() -> None:
     assert out == [NONE, NONE, Action("start_turn", 0)]
 
 
-def test_bot_stopped_ignored_while_speaking() -> None:
+def test_bot_stopped_latched_until_playback_ends() -> None:
     m = TurnMachine(2, agent_speaks_first=True, response_timeout_ms=8000, max_turns=10)
-    out = run(m, [(100, True, 1100, False, False), (500, True, 1100, True, False)])
-    assert out == [NONE, NONE]
-    assert m.state is TurnState.AGENT_SPEAKING
+    out = run(
+        m,
+        [
+            (100, True, 1100, False, False),
+            (900, True, 1100, True, False),
+            (1099, True, 1100, False, False),
+            (1100, False, 1100, False, False),
+        ],
+    )
+    assert out == [NONE, NONE, NONE, Action("start_turn", 0)]
+
+
+def test_bot_stopped_latch_cleared_by_new_audio() -> None:
+    m = TurnMachine(2, agent_speaks_first=True, response_timeout_ms=8000, max_turns=10)
+    out = run(
+        m,
+        [
+            (100, True, 1100, False, False),
+            (900, True, 1100, True, False),
+            (1000, True, 2000, False, False),
+            (2000, False, 2000, False, False),
+            (2799, False, 2000, False, False),
+            (2800, False, 2000, False, False),
+        ],
+    )
+    assert out == [NONE, NONE, NONE, NONE, NONE, Action("start_turn", 0)]
+
+
+def test_no_turns_caller_first_finishes() -> None:
+    m = TurnMachine(0, agent_speaks_first=False, response_timeout_ms=8000, max_turns=10)
+    out = run(m, [(999, False, None, False, False), (1000, False, None, False, False)])
+    assert out == [NONE, Action("finish")]
+    assert m.turns_started == 0
+    assert m.state is TurnState.DONE
+
+
+def test_max_turns_zero_agent_first_finishes() -> None:
+    m = TurnMachine(3, agent_speaks_first=True, response_timeout_ms=8000, max_turns=0)
+    out = run(
+        m,
+        [
+            (100, True, 1100, False, False),
+            (1899, False, 1100, False, False),
+            (1900, False, 1100, False, False),
+        ],
+    )
+    assert out == [NONE, NONE, Action("finish")]
+    assert m.turns_started == 0
+
+
+def test_max_turns_zero_caller_first_finishes() -> None:
+    m = TurnMachine(3, agent_speaks_first=False, response_timeout_ms=8000, max_turns=0)
+    out = run(m, [(1000, False, None, False, False)])
+    assert out == [Action("finish")]
+
+
+def test_no_turns_agent_first_finishes() -> None:
+    m = TurnMachine(0, agent_speaks_first=True, response_timeout_ms=8000, max_turns=10)
+    out = run(m, [(100, True, 1100, False, False), (1900, False, 1100, False, False)])
+    assert out == [NONE, Action("finish")]
 
 
 def test_pause_inside_reply_is_not_turn_end() -> None:
