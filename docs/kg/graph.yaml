@@ -86,6 +86,7 @@ nodes:
   - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
   - {id: doc_runbook_keys, type: doc, label: "API keys runbook", path: docs/runbooks/api-keys.md}
   - {id: doc_runbook_calibrate, type: doc, label: "Calibrate WSL runbook", path: docs/runbooks/calibrate-wsl.md}
+  - {id: doc_review_m0, type: doc, label: "M0 review", path: docs/reviews/2026-11-16-m0-review.md}
 
   # --- milestones ---
   - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run", summary: "Complete 2026-11-16: repo hygiene, CI, tools, Groq key check, Calibrate text sim on free models, final verdict."}
@@ -133,6 +134,7 @@ edges:
   - {from: t_calibrate_eval, to: c_synthetic, rel: constrained_by}
   - {from: x_calibrate, to: doc_runbook_calibrate, rel: documented_in}
   - {from: t_calibrate_eval, to: m0, rel: delivered_in}
+  - {from: m0, to: doc_review_m0, rel: documented_in}
   # externals
   - {from: tts_cache, to: x_edge_tts, rel: depends_on}
   - {from: tts_cache, to: x_parler, rel: depends_on}

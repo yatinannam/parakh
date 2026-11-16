@@ -10,3 +10,4 @@
 | [`kg/`](kg/README.md) | Knowledge graph: `graph.yaml` plus Mermaid views. |
 | [`runbooks/api-keys.md`](runbooks/api-keys.md) | Creating and checking free API keys (Groq now; Gemini in M3); what to do if a key leaks. |
 | [`runbooks/calibrate-wsl.md`](runbooks/calibrate-wsl.md) | Running Calibrate's text simulation in WSL on free models; troubleshooting; run log. |
+| [`reviews/2026-11-16-m0-review.md`](reviews/2026-11-16-m0-review.md) | M0 code review: findings fixed, minors deferred, rulings. |
