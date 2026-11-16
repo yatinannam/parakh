@@ -178,6 +178,20 @@ def apply_views(readme_text: str, views: dict[str, str]) -> str:
     return out
 
 
+def marker_problems(readme_text: str, names: list[str]) -> list[str]:
+    """Describe each view whose begin/end marker pair is missing, repeated or reversed."""
+    problems = []
+    for name in names:
+        begin = f"<!-- kg:begin {name} -->"
+        end = f"<!-- kg:end {name} -->"
+        n_begin, n_end = readme_text.count(begin), readme_text.count(end)
+        if n_begin != 1 or n_end != 1:
+            problems.append(f"view {name!r}: expected one {begin} and one {end}")
+        elif readme_text.index(begin) > readme_text.index(end):
+            problems.append(f"view {name!r}: end marker comes before begin marker")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.kg_render")
     parser.add_argument("--check", action="store_true", help="fail if the README is out of date")
@@ -191,7 +205,13 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 2
     current = args.readme.read_text(encoding="utf-8")
-    updated = apply_views(current, render_views(graph))
+    views = render_views(graph)
+    problems = marker_problems(current, list(views))
+    if problems:
+        for problem in problems:
+            print(f"{args.readme}: {problem}", file=sys.stderr)
+        return 2
+    updated = apply_views(current, views)
     if args.check:
         if updated != current:
             print(f"{args.readme} is out of date; run python -m tools.kg_render", file=sys.stderr)

@@ -21,6 +21,13 @@ def write(p, text):
     return p
 
 
+def markers(*names):
+    return "".join(f"<!-- kg:begin {n} -->\nold\n<!-- kg:end {n} -->\n" for n in names)
+
+
+ALL_MARKERS = markers("pipeline", "governance", "milestones")
+
+
 def test_duplicate_id_rejected(tmp_path):
     with pytest.raises(GraphError, match="duplicate"):
         load_graph(write(tmp_path / "g.yaml", G.replace("id: b,", "id: a,")))
@@ -73,7 +80,29 @@ def test_check_detects_drift_and_write_fixes_it(tmp_path):
     d = tmp_path / "dir with space"
     d.mkdir()
     gp = write(d / "g.yaml", G)
-    rp = write(d / "README.md", "x\n<!-- kg:begin pipeline -->\nold\n<!-- kg:end pipeline -->\n")
+    rp = write(d / "README.md", "x\n" + ALL_MARKERS)
     assert main(["--check", "--graph", str(gp), "--readme", str(rp)]) == 1
     assert main(["--graph", str(gp), "--readme", str(rp)]) == 0
     assert main(["--check", "--graph", str(gp), "--readme", str(rp)]) == 0
+
+
+@pytest.mark.parametrize(
+    "readme",
+    [
+        "no markers at all\n",
+        markers("pipeline", "governance"),
+        ALL_MARKERS.replace("<!-- kg:end governance -->", "<!-- kg:end governanc -->"),
+        ALL_MARKERS + markers("pipeline"),
+        "<!-- kg:end pipeline -->\n<!-- kg:begin pipeline -->\n"
+        + markers("governance", "milestones"),
+    ],
+    ids=["none", "one-view-missing", "typo-in-end", "duplicate", "end-before-begin"],
+)
+@pytest.mark.parametrize("check", [True, False], ids=["check", "write"])
+def test_missing_or_broken_markers_rejected(tmp_path, capsys, readme, check):
+    gp = write(tmp_path / "g.yaml", G)
+    rp = write(tmp_path / "README.md", readme)
+    args = (["--check"] if check else []) + ["--graph", str(gp), "--readme", str(rp)]
+    assert main(args) == 2
+    assert "marker" in capsys.readouterr().err
+    assert rp.read_text(encoding="utf-8") == readme
