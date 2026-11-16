@@ -117,7 +117,8 @@ def test_run_writes_report(tmp_path: Path) -> None:
 
 
 def test_run_writes_report_on_disconnect(tmp_path: Path) -> None:
-    with background_agent(FakeBehaviour(close_after_replies=1)) as url:
+    info = {"name": "fake-agent", "version": "9"}
+    with background_agent(FakeBehaviour(close_after_replies=1, agent_info=info)) as url:
         result, runs = _invoke(tmp_path, url)
     assert result.exit_code == 2, result.output
     run_dir = _only_run(runs)
@@ -125,12 +126,16 @@ def test_run_writes_report_on_disconnect(tmp_path: Path) -> None:
     assert report["status"] == "agent_disconnected"
     assert (run_dir / "report.html").is_file()
     assert len(report["turns"]) == 4
+    for name in ("events.jsonl", "caller.wav", "agent.wav"):
+        assert (run_dir / name).is_file(), name
+    assert report["agent_info"] == info
 
 
 def test_run_hangup_exit_1(tmp_path: Path) -> None:
     with background_agent(FakeBehaviour(close_before_greeting=True)) as url:
-        result, _ = _invoke(tmp_path, url)
+        result, runs = _invoke(tmp_path, url)
     assert result.exit_code == 1, result.output
+    assert (_only_run(runs) / "report.json").is_file()
 
 
 def test_run_unreachable_exit_2(tmp_path: Path) -> None:
@@ -174,3 +179,49 @@ def test_report_command_rerenders(tmp_path: Path) -> None:
 def test_report_command_missing_dir_exit_2(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["report", str(tmp_path / "nope")])
     assert result.exit_code == 2
+
+
+def test_run_unreachable_never_leaks_url_secret(tmp_path: Path) -> None:
+    result, runs = _invoke(tmp_path, "ws://user:pw@127.0.0.1:1/ws?token=SECRET#frag")
+    assert result.exit_code == 2
+    run_dir = _only_run(runs)
+    for name in ("report.json", "report.html", "events.jsonl"):
+        text = (run_dir / name).read_text(encoding="utf-8")
+        assert "SECRET" not in text and "user:pw" not in text, name
+    assert "SECRET" not in result.output and "user:pw" not in result.output
+    assert "127.0.0.1:1" in result.output
+
+
+def test_run_bad_url_message_is_redacted(tmp_path: Path) -> None:
+    result, _ = _invoke(tmp_path, "http://u:pw@127.0.0.1:1/?token=SECRET")
+    assert result.exit_code == 2
+    assert "SECRET" not in result.output and "u:pw" not in result.output
+
+
+def test_run_without_port_uses_scheme_default(tmp_path: Path) -> None:
+    result, _ = _invoke(tmp_path, "ws://127.0.0.1")
+    assert "None" not in result.output
+    assert "127.0.0.1:80" in result.output
+
+
+def test_run_malformed_port_does_not_crash(tmp_path: Path) -> None:
+    result, _ = _invoke(tmp_path, "ws://127.0.0.1:abc")
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+
+
+def test_run_scoring_failure_still_writes_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("scoring blew up")
+
+    monkeypatch.setattr("parakh.run.response_latencies", boom)
+    with background_agent(FakeBehaviour()) as url:
+        result, runs = _invoke(tmp_path, url)
+    assert result.exit_code == 2, result.output
+    run_dir = _only_run(runs)
+    report = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "internal_error"
+    assert any("RuntimeError" in w for w in report["warnings"])
+    assert (run_dir / "report.html").is_file()

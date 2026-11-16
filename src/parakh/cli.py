@@ -17,6 +17,7 @@ from parakh.report.html import write_report_html
 from parakh.report.model import load_report
 from parakh.run import exit_code, run_scenario
 from parakh.scenario import ScenarioError, load_scenario
+from parakh.transport.ws import redact_url
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
 from parakh.tts.engine import EdgeTTSEngine, TTSEngine
 from parakh.tts.ffmpeg import FfmpegMissing
@@ -86,6 +87,19 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(2)
 
 
+def _endpoint(url: str) -> str:
+    """host:port of a ws URL, using the scheme default port when it has none."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return redact_url(url)
+    if parts.hostname is None:
+        return redact_url(url)
+    port = port or (443 if parts.scheme == "wss" else 80)
+    return f"{parts.hostname}:{port}"
+
+
 def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%"
 
@@ -124,8 +138,7 @@ def run(
     typer.echo(f"run dir: {run_dir}")
     typer.echo(f"status: {result.status}")
     if result.status == "agent_unreachable":
-        parts = urlsplit(agent)
-        typer.echo(f"could not connect to {parts.hostname}:{parts.port}")
+        typer.echo(f"could not connect to {_endpoint(agent)}")
     typer.echo(f"latency p50/p95: {_ms(latency.p50_ms)} / {_ms(latency.p95_ms)} ms")
     typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
     if result.timing_unreliable:
@@ -159,6 +172,7 @@ def budget(
     typer.echo(f"STT calls: {est.stt_calls} (limits {GROQ_STT_LIMITS})")
     typer.echo(f"LLM calls: {est.llm_calls} (assumed limits {GROQ_LLM_ASSUMED}; check the console)")
     typer.echo(f"audio seconds: {est.audio_seconds:.0f}")
+    typer.echo("RPM is not estimated")
     if est.within_limits:
         typer.echo("within limits")
         return

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -15,10 +15,24 @@ class AgentUnreachable(ConnectionError):
     """The agent's WebSocket could not be opened."""
 
 
+def redact_url(url: str) -> str:
+    """Keep scheme, host, port and path; drop userinfo, query and fragment."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "<unparseable url>"
+    host = parts.netloc.rpartition("@")[2]
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
 def check_agent_url(url: str) -> None:
     """Raise ValueError unless url is a ws:// or wss:// URL."""
-    if urlsplit(url).scheme not in ("ws", "wss"):
-        raise ValueError(f"agent URL must start with ws:// or wss://, got {url!r}")
+    try:
+        scheme = urlsplit(url).scheme
+    except ValueError:
+        scheme = ""
+    if scheme not in ("ws", "wss"):
+        raise ValueError(f"agent URL must start with ws:// or wss://, got {redact_url(url)!r}")
 
 
 class AgentConnection:
@@ -32,7 +46,9 @@ class AgentConnection:
         try:
             ws = await connect(url, max_size=None, open_timeout=open_timeout_s)
         except (OSError, TimeoutError, WebSocketException) as exc:
-            raise AgentUnreachable(f"cannot connect to the agent at {url}: {exc}") from exc
+            safe = redact_url(url)
+            reason = str(exc).replace(url, safe)
+            raise AgentUnreachable(f"cannot connect to the agent at {safe}: {reason}") from exc
         return cls(ws)
 
     async def send_audio(self, pcm: bytes, sample_rate: int) -> None:

@@ -1,5 +1,7 @@
 """One scored run: synthesize caller audio, drive the call, score, write the reports."""
 
+import asyncio
+import math
 import secrets
 import subprocess
 from datetime import UTC, datetime
@@ -21,7 +23,8 @@ from parakh.report.model import (
 from parakh.scenario import Scenario, load_scenario
 from parakh.score.latency import latency_stats, response_latencies
 from parakh.score.wer import conversation_wer, group_by_turn, loose_wer, strict_wer
-from parakh.transport.ws import check_agent_url
+from parakh.transport.codec import ProtocolError
+from parakh.transport.ws import check_agent_url, redact_url
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
 from parakh.tts.engine import EdgeTTSEngine, TTSEngine
 from parakh.tts.ffmpeg import require_ffmpeg
@@ -63,7 +66,12 @@ def _ttfb_ms(data: Any) -> list[float]:
     out: list[float] = []
     for entry in entries:
         value = entry.get("value") if isinstance(entry, dict) else None
-        if isinstance(value, int | float) and not isinstance(value, bool):
+        if (
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        ):
             out.append(float(value) * 1000)
     return out
 
@@ -100,9 +108,11 @@ def _build_report(
         if e["kind"] == "agent_metrics"
         for v in _ttfb_ms(e.get("data"))
     ]
+    # The greeting and anything else before the first caller turn belongs to no turn.
+    first = starts[0] if starts else float("inf")
     transcripts = grouped(finals)
-    agent_text = grouped(bot)
-    agent_ttfb = grouped(ttfb)
+    agent_text = grouped([(t, v) for t, v in bot if t >= first])
+    agent_ttfb = grouped([(t, v) for t, v in ttfb if t >= first])
     latencies = response_latencies(events)
     by_turn = {x.turn: x for x in latencies}
 
@@ -141,7 +151,7 @@ def _build_report(
         language=scenario.language,
         preset=preset,
         seed=None,
-        agent_url=agent_url,
+        agent_url=redact_url(agent_url),
         agent_info=result.agent_info,
         status=result.status,
         timing_unreliable=result.timing_unreliable,
@@ -192,15 +202,80 @@ async def run_scenario(
     )
     run_id = secrets.token_hex(4)
     run_dir = runs_dir / run_id
-    result = await run_call(agent_url, scenario, clips, run_dir, agent_rate=agent_rate)
-    report = _build_report(
-        scenario,
-        result,
-        read_events(run_dir),
-        run_id=run_id,
-        agent_url=agent_url,
-        preset=preset,
-    )
+    try:
+        result = await run_call(agent_url, scenario, clips, run_dir, agent_rate=agent_rate)
+        report = _build_report(
+            scenario,
+            result,
+            read_events(run_dir),
+            run_id=run_id,
+            agent_url=agent_url,
+            preset=preset,
+        )
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        _write(_fallback_report(scenario, run_id, agent_url, preset, "interrupted", []), run_dir)
+        raise
+    except Exception as exc:
+        status = "protocol_error" if isinstance(exc, ProtocolError) else "internal_error"
+        message = str(exc).replace(agent_url, redact_url(agent_url))
+        warning = f"{type(exc).__name__}: {message}"
+        report = _fallback_report(scenario, run_id, agent_url, preset, status, [warning])
+    _write(report, run_dir)
+    return report, run_dir
+
+
+def _write(report: Report, run_dir: Path) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
     write_report_json(report, run_dir / "report.json")
     write_report_html(report, run_dir)
-    return report, run_dir
+
+
+def _fallback_report(
+    scenario: Scenario,
+    run_id: str,
+    agent_url: str,
+    preset: str,
+    status: str,
+    warnings: list[str],
+) -> Report:
+    """Minimal report for a run that failed outside the call itself."""
+    return Report(
+        parakh_version=__version__,
+        git_sha=_git_sha(),
+        run_id=run_id,
+        created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        scenario_id=scenario.id,
+        scenario_title=scenario.title,
+        language=scenario.language,
+        preset=preset,
+        seed=None,
+        agent_url=redact_url(agent_url),
+        agent_info={},
+        status=status,
+        timing_unreliable=False,
+        jitter=JitterModel(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        cpu_max_percent=0.0,
+        turns=[
+            TurnReport(
+                index=i,
+                say=t.say,
+                reference=t.reference,
+                transcript="",
+                latency_ms=None,
+                latency_reason="no data",
+                strict_wer=None,
+                loose_wer=None,
+                agent_text="",
+                agent_ttfb_ms=[],
+            )
+            for i, t in enumerate(scenario.turns)
+        ],
+        metrics=Metrics(
+            latency=LatencyStatsModel(n=0, p50_ms=None, p90_ms=None, p95_ms=None, max_ms=None),
+            strict_wer=None,
+            loose_wer=None,
+            loose_cer=None,
+            wer_reason=None,
+        ),
+        warnings=warnings,
+    )
