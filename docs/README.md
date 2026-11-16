@@ -3,6 +3,7 @@
 | Where | What |
 |---|---|
 | [`../CLAUDE.md`](../CLAUDE.md) | Project brief and hard constraints. |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Working rules: the Calibrate clean-room rule, hard constraints, workflow, supply-chain pins. |
 | [`superpowers/specs/2026-11-15-parakh-design.md`](superpowers/specs/2026-11-15-parakh-design.md) | Full design: architecture, components, testing, CI, milestones, edge-case register, decisions. |
 | [`superpowers/plans/2026-11-15-m0-foundations.md`](superpowers/plans/2026-11-15-m0-foundations.md) | M0 plan: repo hygiene, tools, CI, Task 1 run. Later milestones add one plan each to [`superpowers/plans/`](superpowers/plans/). |
 | [`research/2026-11-15-calibrate-analysis.md`](research/2026-11-15-calibrate-analysis.md) | Task 1: what Calibrate covers and lacks, the free-model run, and the verdict. |

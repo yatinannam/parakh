@@ -119,6 +119,7 @@ flowchart TB
   d8[/"D8 KG as YAML + Mermaid"/]
   d9[/"D9 Pack ships text, not edge-tts audio"/]
   doc_calibrate[("Calibrate analysis")]
+  doc_contributing[("CONTRIBUTING")]
   doc_spec[("Design spec")]
   judge["LLM judge"]
   mock_hms["Mock HMS"]
@@ -149,6 +150,7 @@ flowchart TB
   budget -->|constrained_by| c_synthetic
   budget -->|decided_by| d10
   budget -->|mitigates| r_quota
+  c_mit -->|documented_in| doc_contributing
   call_driver -->|constrained_by| c_windows
   call_driver -->|decided_by| d1
   call_driver -->|mitigates| r_timing
@@ -163,6 +165,7 @@ flowchart TB
   judge -->|mitigates| r_injection
   mock_hms -->|decided_by| d3
   normalizer -->|mitigates| r_script
+  r_license -->|documented_in| doc_contributing
   r_llm_behaviour -->|documented_in| doc_calibrate
   report -->|mitigates| r_llm_behaviour
   scenario -->|decided_by| d4

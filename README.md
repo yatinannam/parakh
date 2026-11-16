@@ -1,6 +1,6 @@
 # Parakh
 
-Parakh is a test harness for voice agents that serve Indian callers. It plays a scripted synthetic caller to an agent over a Pipecat-protocol WebSocket, degrades the caller's audio to telephone quality, injects interruptions, and scores each call on response latency, script-tolerant word error rate on Hinglish (Hindi-English code-mixed) speech, task success against a mock hospital management system, and an advisory LLM-judge rating. It is built to run on a CPU-only laptop using free API tiers only.
+Parakh is a test harness, under construction, for voice agents that serve Indian callers. It is designed to play a scripted synthetic caller to an agent over a Pipecat-protocol WebSocket, degrade the caller's audio to telephone quality, inject interruptions, and score each call on response latency, script-tolerant word error rate on Hinglish (Hindi-English code-mixed) speech, task success against a mock hospital management system, and an advisory LLM-judge rating. It targets a CPU-only laptop and free API tiers only.
 
 ## Status
 
@@ -63,19 +63,20 @@ uv run parakh version
 
 API keys go in `.env`, which is gitignored. Copy `.env.example` to `.env`, set `GROQ_API_KEY`, and check it with `uv run python -m tools.check_keys`. The check lists models only and never prints the key. See the [API keys runbook](docs/runbooks/api-keys.md).
 
-The same checks run in pre-commit and in CI:
+Checks, and where each runs. Pre-commit runs on every commit; run the type check and tests yourself before pushing, or let CI catch them.
 
-| Check | Command |
-|---|---|
-| Lint | `uv run ruff check .` |
-| Format | `uv run ruff format --check .` |
-| Types | `uv run pyright` |
-| Tests | `uv run pytest -q` |
-| No emoji in tracked files | `uv run python -m tools.no_emoji` |
-| Knowledge-graph views in sync | `uv run python -m tools.kg_render --check` |
-| Secret scan | gitleaks (pre-commit hook and CI job) |
+| Check | Command | Pre-commit | CI |
+|---|---|---|---|
+| Lint | `uv run ruff check .` | yes (with `--fix`) | yes |
+| Format | `uv run ruff format --check .` | yes (formats) | yes |
+| Types | `uv run pyright` | no | yes |
+| Tests | `uv run pytest -q` | no | yes |
+| No emoji in tracked files | `uv run python -m tools.no_emoji` | yes | yes |
+| Knowledge-graph views in sync | `uv run python -m tools.kg_render --check` | yes | yes |
+| Secret scan | gitleaks | yes | yes (full history) |
+| YAML, TOML, whitespace, large files | pre-commit-hooks | yes | no |
 
-GitHub Actions are pinned to full commit SHAs; Dependabot proposes updates weekly.
+GitHub Actions and pre-commit hooks are pinned to full commit SHAs, and a unit test fails on any unpinned one. Dependabot proposes Action updates weekly. See [CONTRIBUTING.md](CONTRIBUTING.md) for the working rules.
 
 ## Repository layout
 
