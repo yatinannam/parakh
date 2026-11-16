@@ -88,12 +88,51 @@ def _split_tokens(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9]", " ", text.lower()).split()
 
 
+def _english_1_99(tokens: list[str], i: int) -> tuple[int, int] | None:
+    """Value and token count of an English number word 1-99 at position i."""
+    if i >= len(tokens):
+        return None
+    tok = tokens[i]
+    if tok in _EN_TENS:
+        unit = _EN_UNITS.get(tokens[i + 1]) if i + 1 < len(tokens) else None
+        if unit is not None and 1 <= unit <= 9:
+            return _EN_TENS[tok] + unit, 2
+        return _EN_TENS[tok], 1
+    value = _EN_UNITS.get(tok)
+    if value is not None and value >= 1:
+        return value, 1
+    return None
+
+
+def _hundreds(tokens: list[str], i: int) -> tuple[int, int] | None:
+    """Value and token count of "X hundred [and] [Y]" at position i."""
+    unit = _EN_UNITS.get(tokens[i], _HI_DIGITS.get(tokens[i]))
+    if unit is None or not 1 <= unit <= 9:
+        return None
+    if i + 1 >= len(tokens) or tokens[i + 1] != "hundred":
+        return None
+    total, used = unit * 100, 2
+    j = i + 2
+    if j < len(tokens) and tokens[j] == "and":
+        j += 1
+    rest = _english_1_99(tokens, j)
+    if rest is not None:
+        total += rest[0]
+        used = j + rest[1] - i
+    return total, used
+
+
 def _numbers(tokens: list[str]) -> list[str]:
     out: list[str] = []
     i = 0
     while i < len(tokens):
         tok = tokens[i]
         nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        hundreds = _hundreds(tokens, i)
+        if hundreds is not None:
+            out.append(str(hundreds[0]))
+            i += hundreds[1]
+            continue
         if tok in ("double", "triple") and (nxt in _EN_UNITS or nxt in _HI_DIGITS):
             digit = _EN_UNITS.get(nxt, _HI_DIGITS.get(nxt))
             if digit is not None and digit < 10:
@@ -143,7 +182,7 @@ def _loose_key(token: str) -> str:
 
 def normalize(text: str) -> Normalized:
     # 1. NFC and Perso-Arabic detection.
-    text = unicodedata.normalize("NFC", text)
+    text = unicodedata.normalize("NFC", text).replace("‌", "").replace("‍", "")
     unsupported = bool(_PERSO_ARABIC.search(text))
     # 2. Devanagari to loose ITRANS.
     text = _romanize_devanagari(text)
