@@ -6,7 +6,14 @@ task receives agent events: audio feeds the virtual playback clock and the
 recorder, RTVI messages become events. The recorder is always closed, so a failed
 call still leaves events.jsonl and both WAV tracks, and call_end is the last event.
 
+A call completes when the turn machine finishes, or when the agent closes the
+socket after the last caller turn the script plays (the final turn, or the
+max_turns-th) was fully sent and loud agent audio arrived after its speech end.
+Any earlier close is agent_disconnected, or agent_hung_up_early before the first
+caller turn.
+
 Every timestamp is time.perf_counter_ns(); t0 is taken just before connecting.
+Both WAV tracks start at t0: caller.wav is led by silence for the connect time.
 """
 
 from __future__ import annotations
@@ -20,7 +27,16 @@ from typing import Any, Literal
 import numpy as np
 import psutil
 
-from parakh.audio import FRAME_MS, PCM, read_wav, resample, split_frames
+from parakh.audio import (
+    FRAME_MS,
+    PCM,
+    SAMPLE_RATE,
+    SPEECH_DBFS,
+    dbfs,
+    read_wav,
+    resample,
+    split_frames,
+)
 from parakh.caller.clock import PlaybackClock
 from parakh.caller.pacer import JitterStats, Pacer
 from parakh.caller.recorder import Recorder
@@ -45,16 +61,19 @@ from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_u
 from parakh.tts.cache import CallerClip
 
 CallStatus = Literal[
+    # The turn machine finished, or the agent closed the socket after replying to the
+    # last caller turn the script plays.
     "completed",
-    "turn_timeout",
-    "call_timeout",
-    "agent_disconnected",
-    "agent_hung_up_early",
-    "agent_unreachable",
-    "protocol_error",
+    "turn_timeout",  # no agent audio within response_timeout_s of a wait starting
+    "call_timeout",  # call_timeout_s since t0
+    "agent_disconnected",  # socket closed after the first caller turn, before completion
+    "agent_hung_up_early",  # socket closed before the first caller turn
+    "agent_unreachable",  # the WebSocket could not be opened
+    "protocol_error",  # the agent sent something that is not a valid Pipecat frame
 ]
 
 CPU_WARN_PERCENT = 85.0
+_WAV_RATE = SAMPLE_RATE
 _NS_PER_S = 1_000_000_000
 _NS_PER_MS = 1_000_000
 
@@ -120,6 +139,7 @@ class _Call:
             max_turns=scenario.limits.max_turns,
             end_of_turn_silence_ms=end_of_turn_silence_ms,
         )
+        self._turns_to_play = min(len(clips), scenario.limits.max_turns)
         self._clock = PlaybackClock()
         self.pacer = Pacer(frame_ns=FRAME_MS * _NS_PER_MS)
         self.status: CallStatus | None = None
@@ -131,6 +151,8 @@ class _Call:
         self._turn = 0
         self._frames: list[PCM] | None = None  # clip frames of the caller turn in progress
         self._next = 0
+        self._speech_end_ns: int | None = None  # of the caller turn in progress
+        self._reply_heard = False  # loud agent audio after that speech end
 
     def _ms(self, t_ns: int) -> float:
         return (t_ns - self._t0) / _NS_PER_MS
@@ -192,7 +214,11 @@ class _Call:
             await asyncio.gather(pace, receive, return_exceptions=True)
 
     async def _pace(self, conn: AgentConnection) -> None:
-        self.pacer.start()
+        pacer_t0 = self.pacer.start()
+        # caller.wav is the sent frames in order, with no time origin of its own. Lead
+        # it with silence for the time spent connecting, so it starts at t0.
+        lead = np.zeros(round((pacer_t0 - self._t0) * _WAV_RATE / _NS_PER_S), dtype=np.int16)
+        self._rec.caller_frame(pacer_t0, lead, _WAV_RATE)
         next_cpu_ns = time.perf_counter_ns() + _NS_PER_S
         while True:
             await self.pacer.tick()
@@ -214,6 +240,8 @@ class _Call:
                 self._turn = action.turn_index
                 self._frames = self._clips[action.turn_index].frames
                 self._next = 0
+                self._speech_end_ns = None
+                self._reply_heard = False
             await self._send_frame(conn)
 
     def _step(self, now_ns: int) -> Action:
@@ -241,6 +269,7 @@ class _Call:
                 self._event("caller_turn_start", t_send, turn=self._turn)
             if self._next == self._clips[self._turn].speech_end_frame:
                 self._event("caller_speech_end", t_send, turn=self._turn)
+                self._speech_end_ns = t_send
         self._rec.caller_frame(t_send, frame, self._rate)
         await conn.send_audio(frame.tobytes(), self._rate)
         if frames is not None:
@@ -256,7 +285,14 @@ class _Call:
         except ProtocolError as exc:
             self._end("protocol_error", str(exc))
             return
-        self._end("agent_disconnected" if self.machine.turns_started else "agent_hung_up_early")
+        self._end(self._close_status())
+
+    def _close_status(self) -> CallStatus:
+        """Status for a socket the agent closed."""
+        if self.machine.turns_started == 0:
+            return "agent_hung_up_early"
+        last_turn_sent = self.machine.turns_started == self._turns_to_play and self._frames is None
+        return "completed" if last_turn_sent and self._reply_heard else "agent_disconnected"
 
     def _on_event(self, event: AgentEvent, now: int) -> None:
         if self.status is not None:
@@ -275,6 +311,8 @@ class _Call:
 
     def _on_audio(self, audio: AgentAudio, now: int) -> None:
         pcm = agent_pcm(audio)
+        if self._speech_end_ns is not None and now > self._speech_end_ns:
+            self._reply_heard = self._reply_heard or dbfs(pcm) > SPEECH_DBFS
         previous_end = self._clock.playback_end_ns
         start = now if previous_end is None else max(previous_end, now)
         self._clock.on_audio(now, len(pcm), audio.sample_rate)
@@ -334,7 +372,7 @@ async def run_call(
     loaded = [_load_clip(clip, agent_rate) for clip in clips]
     psutil.cpu_percent(interval=None)  # primes the counter; this first reading is meaningless
     t0 = time.perf_counter_ns()
-    recorder = Recorder(run_dir, t0)
+    recorder = Recorder(run_dir, t0, _WAV_RATE)
     call = _Call(scenario, loaded, recorder, t0, agent_rate, end_of_turn_silence_ms)
     try:
         await call.run(url)

@@ -20,6 +20,7 @@ import numpy as np
 from pipecat.frames.protobufs import frames_pb2
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Request
 
 from parakh.audio import PCM, SPEECH_DBFS, dbfs, split_frames
 
@@ -41,7 +42,9 @@ class FakeBehaviour:
     Caller utterances are counted from 0: an utterance is a run of caller frames
     above -45 dBFS, ended by reply_delay_ms without a loud frame. The greeting is
     not a reply. silent_after_turn N means no reply to utterance N or any later one.
-    close_after_replies N closes the socket after the N-th reply.
+    close_after_replies N closes the socket after the N-th reply; close_before_reply_to
+    N closes it when the reply to utterance N would start. accept_delay_ms holds the
+    opening handshake back, so connecting takes that long.
     """
 
     greet_ms: int | None = 300
@@ -55,6 +58,8 @@ class FakeBehaviour:
     silent_after_turn: int | None = None
     send_garbage: bool = False
     agent_info: dict[str, Any] | None = None
+    close_before_reply_to: int | None = None
+    accept_delay_ms: int = 0
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -159,6 +164,9 @@ class _Session:
         while (due := self._last_loud_ns + delay_ns) > time.perf_counter_ns():
             await _sleep_until(due)  # a newer loud frame moves the due time; check again
         self._waiting = False
+        if utterance == b.close_before_reply_to:
+            await self._ws.close()
+            return
         if b.silent_after_turn is not None and utterance >= b.silent_after_turn:
             return
         text = next(self._transcripts, None)
@@ -197,6 +205,11 @@ async def fake_agent(behaviour: FakeBehaviour) -> AsyncIterator[str]:
         served = True
         await _Session(ws, behaviour).run()
 
-    async with serve(handler, "127.0.0.1", 0, max_size=None) as server:
+    async def delay_handshake(ws: ServerConnection, request: Request) -> None:
+        await asyncio.sleep(behaviour.accept_delay_ms / 1000)
+
+    async with serve(
+        handler, "127.0.0.1", 0, max_size=None, process_request=delay_handshake
+    ) as server:
         port = next(iter(server.sockets)).getsockname()[1]
         yield f"ws://127.0.0.1:{port}"

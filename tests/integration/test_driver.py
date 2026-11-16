@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from parakh.audio import read_wav, speech_end_ms, write_wav
+from parakh.audio import SPEECH_DBFS, read_wav, speech_end_ms, write_wav
 from parakh.caller import driver
 from parakh.caller.driver import CallResult, run_call
 from parakh.caller.recorder import read_events
@@ -40,7 +40,9 @@ def _write_clips(clip_dir: Path, n: int) -> list[CallerClip]:
     return clips
 
 
-def _scenario(n_turns: int, agent_speaks_first: bool, call_timeout_s: float) -> Scenario:
+def _scenario(
+    n_turns: int, agent_speaks_first: bool, call_timeout_s: float, max_turns: int = 12
+) -> Scenario:
     return Scenario(
         schema_version=1,
         id="fake-call",
@@ -51,7 +53,7 @@ def _scenario(n_turns: int, agent_speaks_first: bool, call_timeout_s: float) -> 
         agent_speaks_first=agent_speaks_first,
         caller=CallerVoice(voice="hi-IN-SwaraNeural"),
         turns=[Turn(say=f"turn {i}") for i in range(n_turns)],
-        limits=Limits(response_timeout_s=1.5, call_timeout_s=call_timeout_s),
+        limits=Limits(response_timeout_s=1.5, call_timeout_s=call_timeout_s, max_turns=max_turns),
     )
 
 
@@ -62,10 +64,11 @@ async def _call(
     turns: int = 1,
     agent_speaks_first: bool = True,
     call_timeout_s: float = 20.0,
+    max_turns: int = 12,
 ) -> tuple[CallResult, list[dict[str, Any]]]:
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", turns)
-    scenario = _scenario(turns, agent_speaks_first, call_timeout_s)
+    scenario = _scenario(turns, agent_speaks_first, call_timeout_s, max_turns)
     async with fake_agent(behaviour) as url:
         result = await run_call(url, scenario, clips, base / "run")
     return result, read_events(result.run_dir)
@@ -220,3 +223,45 @@ async def test_cpu_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert message in result.warnings
     assert message in [e["message"] for e in _kinds(events, "warning")]
     _assert_ends_with_call_end(events, "completed")
+
+
+def _first_loud_ms(path: Path) -> float:
+    pcm, rate = read_wav(path)
+    loud = np.flatnonzero(np.abs(pcm.astype(np.int32)) > 32768 * 10 ** (SPEECH_DBFS / 20))
+    assert loud.size > 0
+    return float(loud[0]) * 1000 / rate
+
+
+async def test_caller_and_agent_tracks_share_t0(tmp_path: Path) -> None:
+    # A slow handshake makes the connect time visible: caller.wav must still start at
+    # t0, like agent.wav and the event timestamps.
+    result, events = await _call(tmp_path, FakeBehaviour(accept_delay_ms=150))
+    assert result.status == "completed"
+    turn_start = _kinds(events, "caller_turn_start")[0]["t_ms"]
+    first_audio = _kinds(events, "agent_audio")[0]["t_ms"]
+    assert first_audio > 150
+    assert abs(_first_loud_ms(result.run_dir / "caller.wav") - turn_start) <= TOL_MS
+    assert abs(_first_loud_ms(result.run_dir / "agent.wav") - first_audio) <= TOL_MS
+
+
+async def test_close_after_final_reply_is_completed(tmp_path: Path) -> None:
+    result, events = await _call(tmp_path, FakeBehaviour(close_after_replies=2), turns=2)
+    assert result.status == "completed"
+    assert result.turns_started == 2
+    _assert_ends_with_call_end(events, "completed")
+
+
+async def test_close_after_reply_to_max_turns_is_completed(tmp_path: Path) -> None:
+    behaviour = FakeBehaviour(close_after_replies=1)
+    result, events = await _call(tmp_path, behaviour, turns=2, max_turns=1)
+    assert result.status == "completed"
+    assert result.turns_started == 1
+    _assert_ends_with_call_end(events, "completed")
+
+
+async def test_close_before_final_reply_is_disconnected(tmp_path: Path) -> None:
+    result, events = await _call(tmp_path, FakeBehaviour(close_before_reply_to=1), turns=2)
+    assert result.status == "agent_disconnected"
+    assert result.turns_started == 2
+    assert len(_kinds(events, "caller_turn_end")) == 2
+    _assert_ends_with_call_end(events, "agent_disconnected")
