@@ -94,3 +94,47 @@ def test_read_events_partial_and_invalid(tmp_path: Path) -> None:
     path.write_text('{"kind": "a"}\nnot json\n{"kind": "b"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="line 2"):
         read_events(run)
+
+
+def test_negative_playback_start_is_trimmed(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(320, 1000), 16000, -10.0)
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    assert len(pcm) == 160
+    assert (pcm == 1000).all()
+
+
+def test_frame_entirely_before_zero_is_dropped(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(160, 1000), 16000, -50.0)
+    rec.agent_frame(T0, _tone(160, 2000), 16000, 20.0)
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    assert len(pcm) == 480
+    assert not pcm[:320].any()
+    assert (pcm[320:] == 2000).all()
+    assert [e["kind"] for e in read_events(run)] == ["agent_audio", "agent_audio"]
+
+
+def test_overlapping_frames_overwrite(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(320, 1000), 16000, 0.0)
+    rec.agent_frame(T0, _tone(320, 2000), 16000, 10.0)
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    assert len(pcm) == 480
+    assert (pcm[:160] == 1000).all()
+    assert (pcm[160:] == 2000).all()
+
+
+def test_odd_length_resampled_frame(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(441), 22050, 0.0)
+    rec.close()
+    assert read_events(run)[0]["duration_ms"] == 20.0
+    assert abs(len(read_wav(run / "agent.wav")[0]) - 320) <= 1

@@ -50,24 +50,31 @@ class Recorder:
             sample_rate=sample_rate,
         )
         offset = round(playback_start_ms * self._wav_rate / 1000)
-        self._agent.append((offset, resample(pcm, sample_rate, self._wav_rate)))
+        placed = resample(pcm, sample_rate, self._wav_rate)
+        if offset < 0:
+            placed = placed[-offset:]
+            offset = 0
+        if len(placed):
+            self._agent.append((offset, placed))
 
     def close(self) -> None:
         """Write caller.wav and agent.wav, padded to the same length. Idempotent."""
         if self._closed:
             return
         self._closed = True
-        self._events.close()
-        caller = np.concatenate(self._caller) if self._caller else np.zeros(0, dtype=np.int16)
-        agent_len = max((off + len(p) for off, p in self._agent), default=0)
-        agent = np.zeros(agent_len, dtype=np.int16)
-        for off, p in self._agent:
-            agent[off : off + len(p)] = p
-        total = max(len(caller), len(agent))
-        caller = np.pad(caller, (0, total - len(caller)))
-        agent = np.pad(agent, (0, total - len(agent)))
-        write_wav(self._run_dir / "caller.wav", caller, self._wav_rate)
-        write_wav(self._run_dir / "agent.wav", agent, self._wav_rate)
+        try:
+            caller = np.concatenate(self._caller) if self._caller else np.zeros(0, dtype=np.int16)
+            agent_len = max((off + len(p) for off, p in self._agent), default=0)
+            agent = np.zeros(agent_len, dtype=np.int16)
+            for off, p in self._agent:
+                agent[off : off + len(p)] = p
+            total = max(len(caller), len(agent))
+            caller = np.pad(caller, (0, total - len(caller)))
+            agent = np.pad(agent, (0, total - len(agent)))
+            write_wav(self._run_dir / "caller.wav", caller, self._wav_rate)
+            write_wav(self._run_dir / "agent.wav", agent, self._wav_rate)
+        finally:
+            self._events.close()
 
 
 def read_events(run_dir: Path) -> list[dict[str, Any]]:
