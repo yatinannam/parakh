@@ -6,7 +6,7 @@
 # Edge rels:  depends_on, calls, produces, consumes, constrained_by,
 #             decided_by, mitigates, documented_in, delivered_in, compatible_with
 schema_version: 1
-updated: 2026-11-15
+updated: 2026-11-16
 
 nodes:
   # --- constraints (CLAUDE.md) ---
@@ -41,6 +41,8 @@ nodes:
 
   - {id: t_check_keys, type: component, label: "Key check", summary: "Lists Groq models to verify GROQ_API_KEY; sends no data; never prints the key.", path: tools/check_keys.py}
 
+  - {id: t_calibrate_eval, type: component, label: "Calibrate free-model wrapper", summary: "WSL-only MIT wrapper: forces one :free model onto agent, user and judge fallback; removes ENABLE_TRACING; synthetic config.", path: tools/calibrate_eval}
+
   # --- externals ---
   - {id: x_groq, type: external, label: "Groq", summary: "Whisper STT + chat LLM. Free tier, no training per policy. Limits per org."}
   - {id: x_gemini, type: external, label: "Gemini API", summary: "Judge fallback. Free tier may train on inputs."}
@@ -49,7 +51,7 @@ nodes:
   - {id: x_parler, type: external, label: "Indic Parler-TTS", summary: "Apache-2.0, CPU speed unknown; offline only."}
   - {id: x_whisper, type: external, label: "faster-whisper small int8", summary: "Local CPU scoring of agent replies without text."}
   - {id: x_pipecat, type: external, label: "Pipecat", summary: "BSD-2. Protobuf frames: Text, AudioRaw, Transcription, Message, Interruption."}
-  - {id: x_calibrate, type: external, label: "Calibrate", summary: "CC-BY-SA eval framework. Lacks codec/noise, Hinglish scoring for external agents, free voice path."}
+  - {id: x_calibrate, type: external, label: "Calibrate", summary: "CC-BY-SA eval framework. Lacks codec/noise, Hinglish scoring for external agents, latency distribution, free voice path. Text sim ran free via wrapper on 2026-11-16."}
   - {id: x_indic_translit, type: external, label: "indic-transliteration", summary: "MIT. Devanagari/Kannada/Tamil to Roman."}
   - {id: x_wsl, type: external, label: "WSL2 Ubuntu", summary: "Hosts Calibrate install (simpleaudio needs Linux build)."}
 
@@ -83,6 +85,8 @@ nodes:
   - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
 
   - {id: doc_runbook_keys, type: doc, label: "API keys runbook", path: docs/runbooks/api-keys.md}
+
+  - {id: doc_runbook_calibrate, type: doc, label: "Calibrate WSL runbook", path: docs/runbooks/calibrate-wsl.md}
 
   # --- milestones ---
   - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run"}
@@ -123,6 +127,13 @@ edges:
   - {from: t_check_keys, to: c_secrets, rel: constrained_by}
   - {from: t_check_keys, to: m0, rel: delivered_in}
   - {from: x_groq, to: doc_runbook_keys, rel: documented_in}
+  - {from: t_calibrate_eval, to: x_calibrate, rel: calls}
+  - {from: t_calibrate_eval, to: x_openrouter, rel: calls}
+  - {from: t_calibrate_eval, to: d2, rel: decided_by}
+  - {from: t_calibrate_eval, to: c_free, rel: constrained_by}
+  - {from: t_calibrate_eval, to: c_synthetic, rel: constrained_by}
+  - {from: x_calibrate, to: doc_runbook_calibrate, rel: documented_in}
+  - {from: t_calibrate_eval, to: m0, rel: delivered_in}
   # externals
   - {from: tts_cache, to: x_edge_tts, rel: depends_on}
   - {from: tts_cache, to: x_parler, rel: depends_on}
