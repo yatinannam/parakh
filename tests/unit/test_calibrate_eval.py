@@ -1,8 +1,38 @@
+import asyncio
 import json
 import sys
+import types
 from pathlib import Path
 
-from tools.calibrate_eval.run_text_sim import PLACEHOLDER, main, resolve_config
+import pytest
+
+from tools.calibrate_eval.run_text_sim import (
+    PLACEHOLDER,
+    disable_tracing,
+    force_free_models,
+    main,
+    resolve_config,
+)
+
+
+def _fake_sim_module(calls):
+    async def run_simulation(
+        bot_model="openai/gpt-4.1",
+        user_model="openai/gpt-4.1",
+        fallback_judge_model="openai/gpt-5.4-mini",
+    ):
+        calls.append(
+            {
+                "bot_model": bot_model,
+                "user_model": user_model,
+                "fallback_judge_model": fallback_judge_model,
+            }
+        )
+        return "ok"
+
+    mod = types.ModuleType("fake_sim")
+    mod.run_simulation = run_simulation  # type: ignore[attr-defined]
+    return mod
 
 
 def test_resolve_config_replaces_placeholder(tmp_path):
@@ -35,3 +65,33 @@ def test_requires_openrouter_key(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", argv)
     assert main() == 2
     assert "OPENROUTER_API_KEY not set" in capsys.readouterr().err
+
+
+def test_force_free_models_overrides_paid_defaults():
+    calls = []
+    mod = _fake_sim_module(calls)
+    force_free_models(mod, "a/b:free")
+    result = asyncio.run(mod.run_simulation(bot_model="a/b:free"))
+    assert result == "ok"
+    assert calls == [
+        {"bot_model": "a/b:free", "user_model": "a/b:free", "fallback_judge_model": "a/b:free"}
+    ]
+
+
+def test_force_free_models_refuses_unknown_signature():
+    async def run_simulation(bot_model="x"):
+        return "ok"
+
+    mod = types.ModuleType("fake_sim")
+    mod.run_simulation = run_simulation  # type: ignore[attr-defined]
+    with pytest.raises(RuntimeError, match="user_model"):
+        force_free_models(mod, "a/b:free")
+
+
+@pytest.mark.parametrize("value", ["false", "0", "1", ""])
+def test_disable_tracing_removes_the_variable(value):
+    # Calibrate checks bool(os.getenv("ENABLE_TRACING")), so any non-empty
+    # value, including "false", turns tracing on. Only absence disables it.
+    env = {"ENABLE_TRACING": value, "OTHER": "kept"}
+    disable_tracing(env)
+    assert env == {"OTHER": "kept"}

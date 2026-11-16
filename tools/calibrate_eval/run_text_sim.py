@@ -6,9 +6,10 @@ contains no Calibrate code; it only imports the installed package.
 
 Why a wrapper: Calibrate's CLI passes `--model` to the agent only. The simulated
 user keeps the default `user_model="openai/gpt-4.1"`, a paid model, and no flag
-changes it. This wrapper swaps the module attribute `run_simulation` for a thin
-async wrapper that sets `user_model` to the same free model, then hands control
-to Calibrate's own CLI.
+changes it. The judge falls back to `fallback_judge_model="openai/gpt-5.4-mini"`
+when an evaluator names no `judge_model`. This wrapper swaps the module attribute
+`run_simulation` for a thin async wrapper that sets both to the same free model,
+then hands control to Calibrate's own CLI.
 
 Usage:
     python run_text_sim.py --model <id ending in :free> --config text_sim_config.json --out DIR
@@ -17,12 +18,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import sys
+from collections.abc import MutableMapping
 from pathlib import Path
+from types import ModuleType
 
 PLACEHOLDER = "__FREE_MODEL__"
+FORCED_PARAMS = ("user_model", "fallback_judge_model")
 
 
 def resolve_config(src: Path, model: str, out_dir: Path) -> Path:
@@ -33,6 +38,38 @@ def resolve_config(src: Path, model: str, out_dir: Path) -> Path:
     resolved = out_dir / "config.resolved.json"
     resolved.write_text(text, encoding="utf-8")
     return resolved
+
+
+def disable_tracing(env: MutableMapping[str, str]) -> None:
+    """Turn Calibrate's OpenTelemetry tracing off.
+
+    Calibrate reads `bool(os.getenv("ENABLE_TRACING"))`, so any non-empty value,
+    including "false", enables it. Only removing the variable disables it.
+    """
+    env.pop("ENABLE_TRACING", None)
+
+
+def force_free_models(sim: ModuleType, model: str) -> None:
+    """Replace `sim.run_simulation` so every paid default model becomes `model`.
+
+    Raises RuntimeError if the installed signature lacks a parameter this
+    wrapper relies on, which means the Calibrate version has drifted.
+    """
+    original = sim.run_simulation
+    params = inspect.signature(original).parameters
+    missing = [name for name in FORCED_PARAMS if name not in params]
+    if missing:
+        raise RuntimeError(
+            f"run_simulation has no parameter(s) {', '.join(missing)}; "
+            "the installed calibrate-agent does not match 0.0.81"
+        )
+
+    async def run_with_free_models(*a, **kw):
+        for name in FORCED_PARAMS:
+            kw[name] = model
+        return await original(*a, **kw)
+
+    sim.run_simulation = run_with_free_models
 
 
 def main() -> int:
@@ -50,18 +87,12 @@ def main() -> int:
         return 2
 
     resolved = resolve_config(args.config, args.model, args.out)
-    os.environ["ENABLE_TRACING"] = "false"
+    disable_tracing(os.environ)
 
     import calibrate_agent.llm.run_simulation as sim  # type: ignore[import-not-found]
     from calibrate_agent import cli  # type: ignore[import-not-found]
 
-    original = sim.run_simulation
-
-    async def run_with_free_user_model(*a, **kw):
-        kw["user_model"] = args.model
-        return await original(*a, **kw)
-
-    sim.run_simulation = run_with_free_user_model
+    force_free_models(sim, args.model)
 
     sys.argv = [
         "calibrate-agent",
