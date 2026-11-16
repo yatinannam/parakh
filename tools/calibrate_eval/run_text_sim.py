@@ -31,9 +31,21 @@ FORCED_PARAMS = ("user_model", "fallback_judge_model")
 
 
 def resolve_config(src: Path, model: str, out_dir: Path) -> Path:
-    """Write a copy of the config with the placeholder replaced by `model`."""
+    """Write a copy of the config with the placeholder replaced by `model`.
+
+    Raises ValueError, before writing anything, for a config that could reach
+    a paid model despite the wrapper: one with `agent_url` (Calibrate then
+    uses `run_simulation_with_agent`, which this wrapper does not patch) or an
+    evaluator whose `judge_model` is not a `:free` model.
+    """
     text = src.read_text(encoding="utf-8").replace(PLACEHOLDER, model)
-    json.loads(text)  # fail early on invalid JSON
+    data = json.loads(text)  # fail early on invalid JSON
+    if data.get("agent_url"):
+        raise ValueError("config sets agent_url; external agents are not supported")
+    for evaluator in data.get("evaluators", []):
+        judge = evaluator.get("judge_model")
+        if judge is not None and not str(judge).endswith(":free"):
+            raise ValueError(f"evaluator judge_model {judge!r} is not a ':free' model")
     out_dir.mkdir(parents=True, exist_ok=True)
     resolved = out_dir / "config.resolved.json"
     resolved.write_text(text, encoding="utf-8")
@@ -86,7 +98,11 @@ def main() -> int:
         print("OPENROUTER_API_KEY not set; source ~/calibrate-eval/.env first", file=sys.stderr)
         return 2
 
-    resolved = resolve_config(args.config, args.model, args.out)
+    try:
+        resolved = resolve_config(args.config, args.model, args.out)
+    except ValueError as exc:
+        print(f"refusing to run: {exc}", file=sys.stderr)
+        return 2
     disable_tracing(os.environ)
 
     import calibrate_agent.llm.run_simulation as sim  # type: ignore[import-not-found]

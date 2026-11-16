@@ -95,3 +95,33 @@ def test_disable_tracing_removes_the_variable(value):
     env = {"ENABLE_TRACING": value, "OTHER": "kept"}
     disable_tracing(env)
     assert env == {"OTHER": "kept"}
+
+
+def test_resolve_config_refuses_external_agent(tmp_path):
+    # An agent_url config takes Calibrate's run_simulation_with_agent path,
+    # which has its own paid defaults that the wrapper does not patch.
+    src = tmp_path / "c.json"
+    src.write_text(json.dumps({"agent_url": "http://localhost:9000", "evaluators": []}))
+    with pytest.raises(ValueError, match="agent_url"):
+        resolve_config(src, "a/b:free", tmp_path / "out")
+    assert not (tmp_path / "out" / "config.resolved.json").exists()
+
+
+def test_resolve_config_refuses_paid_judge_model(tmp_path):
+    src = tmp_path / "c.json"
+    evaluators = [{"judge_model": PLACEHOLDER}, {"judge_model": "openai/gpt-5.4-mini"}]
+    src.write_text(json.dumps({"evaluators": evaluators}))
+    with pytest.raises(ValueError, match="judge_model"):
+        resolve_config(src, "a/b:free", tmp_path / "out")
+    assert not (tmp_path / "out" / "config.resolved.json").exists()
+
+
+def test_main_rejects_unsafe_config(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    src = tmp_path / "c.json"
+    src.write_text(json.dumps({"agent_url": "http://localhost:9000", "evaluators": []}))
+    out = tmp_path / "out"
+    argv = ["run_text_sim.py", "--model", "a/b:free", "--config", str(src), "--out", str(out)]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert main() == 2
+    assert "refusing to run" in capsys.readouterr().err

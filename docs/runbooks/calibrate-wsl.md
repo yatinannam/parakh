@@ -8,6 +8,7 @@ Why a wrapper: `calibrate-agent simulations --type text -m <model>` sets only th
 
 - refuses any model id that does not end in `:free`;
 - forces that model onto the agent, the simulated user and the judge fallback, and stops if the installed `run_simulation` signature has drifted;
+- refuses a config that sets `agent_url` (Calibrate's external-agent path has its own paid defaults, which the wrapper does not patch) or names an evaluator `judge_model` that is not `:free`;
 - removes `ENABLE_TRACING`, because Calibrate treats any non-empty value, including `false`, as on.
 
 Budget: 8 OpenRouter requests per run in practice (4 agent, 3 user, 1 judge); at most about 13 with 6 turns. The free cap without purchased credits is about 50 requests per day and 20 per minute.
@@ -30,11 +31,15 @@ sudo apt update && sudo apt install -y python3-venv python3-dev build-essential 
 
 1. Sign up at <https://openrouter.ai>. Do not add credits or a card.
 2. Create a key under **Keys**, named `parakh-calibrate-eval`.
-3. Store it only in WSL:
+3. Store it only in WSL. Paste the key at the `OpenRouter key:` prompt; it is not echoed, never appears on a command line (so it stays out of `~/.bash_history`), and the file is created readable by you only:
 
 ```
 mkdir -p ~/calibrate-eval
-printf 'OPENROUTER_API_KEY=%s\n' 'PASTE_KEY_HERE' > ~/calibrate-eval/.env
+(
+  umask 077
+  read -rsp 'OpenRouter key: ' KEY && echo
+  printf 'OPENROUTER_API_KEY=%s\n' "$KEY" > ~/calibrate-eval/.env
+)
 chmod 600 ~/calibrate-eval/.env
 ```
 
