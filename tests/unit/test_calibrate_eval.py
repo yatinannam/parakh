@@ -45,7 +45,8 @@ def test_resolve_config_replaces_placeholder(tmp_path):
 
 
 def test_shipped_config_is_valid_and_uses_placeholder():
-    text = Path("tools/calibrate_eval/text_sim_config.json").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "tools" / "calibrate_eval" / "text_sim_config.json").read_text(encoding="utf-8")
     data = json.loads(text)
     assert all(e["judge_model"] == PLACEHOLDER for e in data["evaluators"])
     assert data["settings"]["max_turns"] <= 6

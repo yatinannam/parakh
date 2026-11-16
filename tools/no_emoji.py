@@ -39,7 +39,9 @@ def _is_emoji(ch: str) -> bool:
 def find_emoji(text: str) -> list[tuple[int, int, str]]:
     """Return (line, column, character) for each emoji, 1-based."""
     hits: list[tuple[int, int, str]] = []
-    for line_no, line in enumerate(text.splitlines(), start=1):
+    # Split on "\n" only: str.splitlines() also breaks on form feed, U+2028 and
+    # others, which would shift line numbers away from what an editor shows.
+    for line_no, line in enumerate(text.split("\n"), start=1):
         for col, ch in enumerate(line, start=1):
             if _is_emoji(ch):
                 hits.append((line_no, col, ch))
@@ -80,7 +82,16 @@ def _tracked_files() -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    paths = [Path(a) for a in args] if args else _tracked_files()
+    if args:
+        paths = [Path(a) for a in args]
+        # A path named on the command line must exist; a typo must not look clean.
+        bad = [p for p in paths if not p.is_file()]
+        for p in bad:
+            print(f"{p}: not a readable file", file=sys.stderr)
+        if bad:
+            return 2
+    else:
+        paths = _tracked_files()
     hits = scan_paths(paths)
     for path, line, col, ch in hits:
         print(f"{path}:{line}:{col}: U+{ord(ch):04X}")

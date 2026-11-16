@@ -30,4 +30,4 @@ repos:
         entry: uv run python -m tools.kg_render --check
         language: system
         pass_filenames: false
-        files: ^docs/kg/
+        files: ^(docs/kg/|tools/kg_render\.py$)

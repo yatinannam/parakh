@@ -28,7 +28,9 @@ class KeyCheck:
 
 
 def check_groq(api_key: str, client: httpx.Client) -> KeyCheck:
-    """List Groq models with the given key."""
+    """List Groq models with the given key. Details never include the key."""
+    if not api_key.isascii():
+        return KeyCheck(ok=False, detail="key contains non-ASCII characters; re-copy it")
     try:
         resp = client.get(
             GROQ_MODELS_URL,
@@ -39,12 +41,22 @@ def check_groq(api_key: str, client: httpx.Client) -> KeyCheck:
         return KeyCheck(ok=False, detail=f"request failed: {type(exc).__name__}")
     if resp.status_code != 200:
         return KeyCheck(ok=False, detail=f"HTTP {resp.status_code}")
-    models = sorted(m["id"] for m in resp.json().get("data", []))
+    try:
+        models = sorted(m["id"] for m in resp.json()["data"])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return KeyCheck(ok=False, detail="HTTP 200 but unexpected response body")
     return KeyCheck(ok=True, detail="HTTP 200", models=models)
 
 
+class EnvFileError(Exception):
+    """The .env file exists but cannot be read as UTF-8 text."""
+
+
 def _read_key(env_path: Path, name: str) -> str:
-    values = dotenv_values(env_path) if env_path.is_file() else {}
+    try:
+        values = dotenv_values(env_path, encoding="utf-8") if env_path.is_file() else {}
+    except UnicodeDecodeError as exc:
+        raise EnvFileError(f"{env_path} is not UTF-8 text; save it as UTF-8") from exc
     return (values.get(name) or os.environ.get(name) or "").strip()
 
 
@@ -53,7 +65,11 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> i
     parser.add_argument("--env", type=Path, default=Path(".env"))
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
-    key = _read_key(args.env, "GROQ_API_KEY")
+    try:
+        key = _read_key(args.env, "GROQ_API_KEY")
+    except EnvFileError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     if not key:
         print(f"GROQ_API_KEY not set (looked in {args.env} and the environment)", file=sys.stderr)
         return 2

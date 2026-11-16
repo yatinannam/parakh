@@ -7,7 +7,7 @@ updated: 2026-11-15
 nodes:
   - {id: a, type: component, label: "Caller TTS + cache"}
   - {id: b, type: external, label: "OpenRouter :free"}
-  - {id: d, type: decision, label: 'D3 HMS = "hospital" (mgmt)'}
+  - {id: d, type: decision, label: 'D3 HMS = "hospital" (mgmt) / 100ms'}
   - {id: m0, type: milestone, label: "M0 Foundations"}
 edges:
   - {from: a, to: b, rel: depends_on}
@@ -52,7 +52,7 @@ def test_labels_with_special_chars_are_quoted(tmp_path):
     views = render_views(load_graph(write(tmp_path / "g.yaml", G)))
     assert 'a["Caller TTS + cache"]' in views["pipeline"]
     assert 'b{{"OpenRouter :free"}}' in views["pipeline"]
-    assert "#quot;hospital#quot;" in views["governance"]
+    assert 'd[/"D3 HMS = #quot;hospital#quot; (mgmt) / 100ms"/]' in views["governance"]
 
 
 def test_views_filter_by_type(tmp_path):
@@ -106,3 +106,32 @@ def test_missing_or_broken_markers_rejected(tmp_path, capsys, readme, check):
     assert main(args) == 2
     assert "marker" in capsys.readouterr().err
     assert rp.read_text(encoding="utf-8") == readme
+
+
+def test_malformed_yaml_is_graph_error(tmp_path):
+    with pytest.raises(GraphError):
+        load_graph(write(tmp_path / "g.yaml", "nodes: [unclosed\n"))
+
+
+def test_missing_graph_file_is_graph_error(tmp_path):
+    with pytest.raises(GraphError, match="cannot read"):
+        load_graph(tmp_path / "absent.yaml")
+
+
+@pytest.mark.parametrize("missing", ["graph", "readme"])
+def test_missing_input_files_exit_2(tmp_path, capsys, missing):
+    gp = tmp_path / "g.yaml"
+    rp = tmp_path / "README.md"
+    if missing != "graph":
+        write(gp, G)
+    if missing != "readme":
+        write(rp, ALL_MARKERS)
+    assert main(["--check", "--graph", str(gp), "--readme", str(rp)]) == 2
+    assert "cannot read" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad_id", ["a b", "end", "subgraph", "9lives", "a-b", ""])
+def test_invalid_node_ids_rejected(tmp_path, bad_id):
+    text = G.replace("id: b,", f"id: '{bad_id}',").replace("to: b,", f"to: '{bad_id}',")
+    with pytest.raises(GraphError, match="node id"):
+        load_graph(write(tmp_path / "g.yaml", text))

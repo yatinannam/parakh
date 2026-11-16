@@ -43,6 +43,9 @@ _SHAPES: dict[str, tuple[str, str]] = {
     "milestone": ('(("', '"))'),
 }
 _GOVERNANCE_TYPES = {"constraint", "decision", "risk"}
+_NODE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Words Mermaid's flowchart grammar reserves; as node ids they break the diagram.
+_MERMAID_KEYWORDS = {"end", "subgraph", "graph", "flowchart", "style", "class", "classDef", "click"}
 
 
 class GraphError(ValueError):
@@ -78,8 +81,13 @@ class Graph(BaseModel):
 
 
 def load_graph(path: Path) -> Graph:
-    """Load and validate a graph file."""
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    """Load and validate a graph file. Raises GraphError for any invalid input."""
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GraphError(f"{path}: cannot read ({exc})") from exc
+    except yaml.YAMLError as exc:
+        raise GraphError(f"{path}: invalid YAML ({exc})") from exc
     if isinstance(raw, dict) and "updated" in raw:
         raw["updated"] = str(raw["updated"])
     try:
@@ -88,6 +96,11 @@ def load_graph(path: Path) -> Graph:
         raise GraphError(f"{path}: {exc}") from exc
     seen: set[str] = set()
     for node in graph.nodes:
+        if not _NODE_ID.match(node.id) or node.id in _MERMAID_KEYWORDS:
+            raise GraphError(
+                f"{path}: node id {node.id!r} must match {_NODE_ID.pattern} "
+                "and not be a Mermaid keyword"
+            )
         if node.id in seen:
             raise GraphError(f"{path}: duplicate node id {node.id!r}")
         seen.add(node.id)
@@ -204,7 +217,11 @@ def main(argv: list[str] | None = None) -> int:
     except GraphError as exc:
         print(exc, file=sys.stderr)
         return 2
-    current = args.readme.read_text(encoding="utf-8")
+    try:
+        current = args.readme.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"{args.readme}: cannot read ({exc})", file=sys.stderr)
+        return 2
     views = render_views(graph)
     problems = marker_problems(current, list(views))
     if problems:

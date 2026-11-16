@@ -42,3 +42,22 @@ def test_main_reports_and_exits_nonzero(tmp_path, capsys):
     good = bad.with_name("y.md")
     good.write_text("plain\n", encoding="utf-8")
     assert main([str(good)]) == 0
+
+
+def test_line_numbers_count_only_newlines():
+    # Form feed and U+2028 are not line breaks in a text editor's numbering.
+    text = "a" + chr(0x0C) + "b" + chr(0x2028) + "c\n" + chr(0x1F600) + "\n"
+    assert find_emoji(text) == [(2, 1, chr(0x1F600))]
+
+
+def test_crlf_line_numbers_and_columns():
+    assert find_emoji("a\r\n" + chr(0x1F600) + "\r\n") == [(2, 1, chr(0x1F600))]
+
+
+def test_explicit_path_that_is_not_a_file_exits_2(tmp_path, capsys):
+    missing = tmp_path / "dir with space" / "typo.md"
+    assert main([str(missing)]) == 2
+    assert main([str(tmp_path)]) == 2
+    err = capsys.readouterr().err
+    assert "typo.md: not a readable file" in err
+    assert f"{tmp_path}: not a readable file" in err
