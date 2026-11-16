@@ -1,5 +1,7 @@
 import json
+import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -138,3 +140,47 @@ def test_odd_length_resampled_frame(tmp_path: Path) -> None:
     rec.close()
     assert read_events(run)[0]["duration_ms"] == 20.0
     assert abs(len(read_wav(run / "agent.wav")[0]) - 320) <= 1
+
+
+class _SlowFile:
+    """Stands in for events.jsonl: each flush blocks like a stalled disk write."""
+
+    def __init__(self, real: Any, fail: bool = False) -> None:
+        self.real = real
+        self.fail = fail
+
+    def write(self, line: str) -> int:
+        if self.fail:
+            raise OSError("disk full")
+        return self.real.write(line)
+
+    def flush(self) -> None:
+        time.sleep(0.05)
+        self.real.flush()
+
+    def close(self) -> None:
+        self.real.close()
+
+
+def test_event_does_not_wait_for_the_disk(tmp_path: Path) -> None:
+    # The driver calls event() on its event loop; a stalled write (NTFS and filter
+    # drivers can block one for 30 ms or more) must not stall the call.
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec._events = _SlowFile(rec._events)  # type: ignore[assignment]
+    start = time.perf_counter()
+    for i in range(5):
+        rec.event("tick", T0 + i * 1_000_000, i=i)
+    assert time.perf_counter() - start < 0.05
+    rec.close()
+    assert [e["i"] for e in read_events(run)] == [0, 1, 2, 3, 4]
+
+
+def test_event_write_error_raised_at_close(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec._events = _SlowFile(rec._events, fail=True)  # type: ignore[assignment]
+    rec.event("tick", T0)
+    with pytest.raises(OSError, match="disk full"):
+        rec.close()
+    assert (run / "caller.wav").is_file()
