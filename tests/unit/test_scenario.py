@@ -80,3 +80,51 @@ def test_barge_in_parsed(tmp_path):
     barge = s.turns[1].barge_in
     assert barge is not None
     assert barge.after_agent_ms == 1200
+
+
+_LIMITS = "limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }"
+
+
+@pytest.mark.parametrize(
+    ("limits", "field"),
+    [
+        # max_turns 0 played no turn and reported completed with exit 0: a false pass.
+        ("limits: { max_turns: 0 }", "max_turns"),
+        ("limits: { max_turns: -1 }", "max_turns"),
+        # A zero timeout ended the call at once.
+        ("limits: { response_timeout_s: 0 }", "response_timeout_s"),
+        ("limits: { response_timeout_s: -2 }", "response_timeout_s"),
+        ("limits: { call_timeout_s: 0 }", "call_timeout_s"),
+        ("limits: { call_timeout_s: -1.5 }", "call_timeout_s"),
+        # The driver turns timeouts into integer nanoseconds; infinity overflows.
+        ("limits: { call_timeout_s: .inf }", "call_timeout_s"),
+        ("limits: { response_timeout_s: .nan }", "response_timeout_s"),
+    ],
+)
+def test_rejects_out_of_range_limits(tmp_path, limits, field):
+    text = _example_text()
+    assert _LIMITS in text
+    with pytest.raises(ScenarioError, match=field):
+        load_scenario(_write(tmp_path, text.replace(_LIMITS, limits)))
+
+
+def test_smallest_valid_limits_accepted(tmp_path):
+    limits = "limits: { max_turns: 1, response_timeout_s: 0.1, call_timeout_s: 0.1 }"
+    s = load_scenario(_write(tmp_path, _example_text().replace(_LIMITS, limits)))
+    assert s.limits.max_turns == 1
+
+
+@pytest.mark.parametrize(("after_ms", "ok"), [(-1, False), (0, True)])
+def test_barge_in_offset_not_negative(tmp_path, after_ms, ok):
+    text = _example_text().replace(
+        '  - say: "Kal subah, agar possible ho toh saadhe das baje."\n',
+        '  - say: "Kal subah, agar possible ho toh saadhe das baje."\n'
+        f"    barge_in: {{after_agent_ms: {after_ms}}}\n",
+    )
+    path = _write(tmp_path, text)
+    if ok:
+        barge = load_scenario(path).turns[1].barge_in
+        assert barge is not None and barge.after_agent_ms == 0
+    else:
+        with pytest.raises(ScenarioError, match="after_agent_ms"):
+            load_scenario(path)

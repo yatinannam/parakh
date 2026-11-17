@@ -212,9 +212,9 @@ limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }
 | `clock` | Frozen "now" for the scenario, with a timezone offset. In M1 the clinic agent reads the same value from its own `config.yaml`. |
 | `agent_speaks_first` | Wait for the agent's greeting (default `true`), or speak after 1 s of silence. |
 | `caller` | edge-tts voice, rate and pitch. |
-| `limits` | `max_turns`, `response_timeout_s`, `call_timeout_s`. |
+| `limits` | `max_turns` (at least 1), `response_timeout_s` and `call_timeout_s` (finite, above 0). |
 
-The schema also accepts `barge_in` per turn (M2) and `hms_seed` and `expect` (M4). All scenario content is synthetic: invented names, numbers and clinics.
+The schema also accepts `barge_in` per turn (M2; `after_agent_ms` 0 or more) and `hms_seed` and `expect` (M4). All scenario content is synthetic: invented names, numbers and clinics.
 
 ## Status
 

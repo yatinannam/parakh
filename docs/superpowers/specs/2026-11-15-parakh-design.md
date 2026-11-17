@@ -125,7 +125,7 @@ expect:                                         # M4
 limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }
 ```
 
-`say` is the text sent to TTS, in whatever script the voice reads best. `ref` is the canonical reference transcript for WER. All content is synthetic: invented names, numbers and clinics.
+`say` is the text sent to TTS, in whatever script the voice reads best. `ref` is the canonical reference transcript for WER. `limits.max_turns` is at least 1 (0 would play no turn and still report `completed`), both timeouts are finite and above 0, and `barge_in.after_agent_ms` is 0 or more. All content is synthetic: invented names, numbers and clinics.
 
 ### 6.2 Caller TTS and cache
 

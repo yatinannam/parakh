@@ -25,7 +25,7 @@ class CallerVoice(_Strict):
 
 
 class BargeIn(_Strict):
-    after_agent_ms: int
+    after_agent_ms: int = Field(ge=0)
 
 
 class Turn(_Strict):
@@ -40,9 +40,10 @@ class Turn(_Strict):
 
 
 class Limits(_Strict):
-    max_turns: int = 12
-    response_timeout_s: float = 8.0
-    call_timeout_s: float = 180.0
+    # max_turns 0 would play no turn and still report completed (a false pass).
+    max_turns: int = Field(default=12, ge=1)
+    response_timeout_s: float = Field(default=8.0, gt=0, allow_inf_nan=False)
+    call_timeout_s: float = Field(default=180.0, gt=0, allow_inf_nan=False)
 
 
 class Scenario(_Strict):
