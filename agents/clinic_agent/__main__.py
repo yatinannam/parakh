@@ -2,15 +2,16 @@
 
 import argparse
 import asyncio
+import contextlib
 import os
 import sys
 
 import httpx
 from dotenv import dotenv_values
-from pipecat.pipeline.runner import PipelineRunner
+from pipecat.workers.runner import WorkerRunner
 
 from agents.clinic_agent.bot import build_task
-from agents.clinic_agent.config import load_config, verify_models
+from agents.clinic_agent.config import AgentConfig, load_config, verify_models
 
 MODELS_URL = "https://api.groq.com/openai/v1/models"
 
@@ -44,8 +45,17 @@ def main() -> None:
         _fail(str(exc))
         return
 
-    task, _transport = build_task(config, key, host=args.host, port=args.port)
-    asyncio.run(PipelineRunner().run(task))
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(_serve(config, key, args.host, args.port))
+
+
+async def _serve(config: AgentConfig, key: str, host: str, port: int) -> None:
+    """Serve one call per pipeline task, building fresh state for each, until interrupted."""
+    while True:
+        task, _transport = build_task(config, key, host=host, port=port)
+        runner = WorkerRunner(handle_sigint=False)
+        await runner.add_workers(task)
+        await runner.run()
 
 
 if __name__ == "__main__":

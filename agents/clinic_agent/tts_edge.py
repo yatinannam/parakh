@@ -1,5 +1,6 @@
 """Pipecat TTS service that speaks with a Parakh TTSEngine (edge-tts by default)."""
 
+import asyncio
 from collections.abc import AsyncGenerator, Callable
 
 import numpy as np
@@ -36,7 +37,7 @@ class EdgeTTSService(TTSService):
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
         encoded = await self._engine.synthesize(text, self._voice, "+0%", "+0Hz")
-        pcm = self._decode(encoded, self._rate).astype(np.int16)
+        pcm = (await asyncio.to_thread(self._decode, encoded, self._rate)).astype(np.int16)
         step = self._rate * CHUNK_MS // 1000
         for start in range(0, len(pcm), step):
             chunk = pcm[start : start + step]

@@ -1,9 +1,10 @@
 """Pipecat pipeline for the Parakh Clinic test agent."""
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import EndFrame, LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.task import PipelineParams
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.vad_processor import VADProcessor
@@ -36,7 +37,7 @@ def build_task(
     groq_api_key: str,
     host: str = "127.0.0.1",
     port: int = 8765,
-) -> tuple[PipelineTask, SingleClientWebsocketServerTransport]:
+) -> tuple[PipelineWorker, SingleClientWebsocketServerTransport]:
     rate = config.sample_rate
     transport = SingleClientWebsocketServerTransport(
         params=SingleClientWebsocketServerParams(
@@ -91,7 +92,7 @@ def build_task(
             aggregators.assistant(),
         ]
     )
-    task = PipelineTask(
+    task = PipelineWorker(
         pipeline,
         params=PipelineParams(audio_in_sample_rate=rate, audio_out_sample_rate=rate),
         observers=[RTVIObserver(rtvi)],
@@ -108,5 +109,10 @@ def build_task(
             }
         }
         await task.queue_frames([RTVIServerMessageFrame(data=info), LLMRunFrame()])
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(_transport, _client) -> None:
+        # One call per task: end it so the next caller gets fresh state from a new task.
+        await task.queue_frame(EndFrame())
 
     return task, transport
