@@ -126,3 +126,30 @@ def test_silent_agent_frames_do_not_suppress_turn_timeout(tmp_path: Path) -> Non
     finally:
         rec.close()
     assert kinds.index("timeout") == 50  # 1000 ms after the wait began
+
+
+def test_rtvi_error_becomes_a_warning_in_the_report(tmp_path: Path) -> None:
+    # Run 106c8e4e: edge-tts returned no audio for a reply and the agent sent two RTVI
+    # "error" messages, which were logged only as rtvi_unknown; the report showed a
+    # bare turn_timeout. They are now warnings, with any URL in the text redacted.
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    run_dir = tmp_path / "run"
+    rec = Recorder(run_dir, T0)
+    text = "No audio was received from wss://tts.example/v1?Token=SECRET#x, retry"
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        call._on_event(RtviMessage("error", {"error": text, "fatal": False}, {}), T0 + MS)
+        call._on_event(RtviMessage("error", {"error": "pipeline stopped", "fatal": True}, {}), T0)
+        call._on_event(RtviMessage("error", {"fatal": False}, {}), T0 + 2 * MS)
+    finally:
+        rec.close()
+    expected = [
+        "agent error: No audio was received from wss://tts.example/v1, retry",
+        "agent error (fatal): pipeline stopped",
+        "agent error: (no message)",
+    ]
+    assert call.warnings == expected
+    events = read_events(run_dir)
+    assert [e["message"] for e in events if e["kind"] == "warning"] == expected
+    assert not [e for e in events if e["kind"] == "rtvi_unknown"]
+    assert "SECRET" not in (run_dir / "events.jsonl").read_text(encoding="utf-8")

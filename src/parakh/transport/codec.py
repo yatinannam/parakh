@@ -16,6 +16,7 @@ BOT_STOPPED = "bot-stopped-speaking"
 BOT_STARTED = "bot-started-speaking"
 BOT_OUTPUT = "bot-output"
 METRICS = "metrics"
+ERROR = "error"  # RTVI error: data {"error": str, "fatal": bool}
 
 
 class ProtocolError(ValueError):

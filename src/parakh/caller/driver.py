@@ -46,6 +46,7 @@ from parakh.transport.codec import (
     BOT_OUTPUT,
     BOT_STARTED,
     BOT_STOPPED,
+    ERROR,
     METRICS,
     AgentAudio,
     AgentEvent,
@@ -58,7 +59,7 @@ from parakh.transport.codec import (
     agent_info,
     caller_transcript,
 )
-from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url
+from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url, redact_urls
 from parakh.tts.cache import CallerClip
 
 CallStatus = Literal[
@@ -115,6 +116,14 @@ def _load_clip(clip: CallerClip, rate: int) -> _Clip:
     if not frames:
         frames = [np.zeros(rate * FRAME_MS // 1000, dtype=np.int16)]
     return _Clip(frames, min(len(frames) - 1, clip.speech_end_ms // FRAME_MS))
+
+
+def _agent_error(msg: RtviMessage) -> str:
+    """Warning text for an RTVI error message, with any URL in it redacted (EC-82)."""
+    text = msg.data.get("error")
+    detail = redact_urls(text) if isinstance(text, str) and text.strip() else "(no message)"
+    fatal = " (fatal)" if msg.data.get("fatal") is True else ""
+    return f"agent error{fatal}: {detail}"
 
 
 class _Call:
@@ -343,6 +352,8 @@ class _Call:
             self._event("bot_output", now, text=text if isinstance(text, str) else "")
         elif msg.type == METRICS:
             self._event("agent_metrics", now, data=msg.data)
+        elif msg.type == ERROR:
+            self._warn(_agent_error(msg), now)
         else:
             self._event("rtvi_unknown", now, type=msg.type)
 

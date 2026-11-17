@@ -11,7 +11,7 @@ from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
 from parakh.run import _build_report, _git_sha, _ttfb_ms, exit_code
 from parakh.scenario import Scenario
 from parakh.score.wer import NO_TRANSCRIPT_REASON
-from parakh.transport.ws import redact_url
+from parakh.transport.ws import redact_url, redact_urls
 
 
 def test_ttfb_ms_converts_and_skips_malformed():
@@ -181,3 +181,9 @@ def test_no_caller_transcript_at_all_keeps_wer_null_with_reason():
     report = _wer_report(events)
     assert all(t.strict_wer is None and t.loose_wer is None for t in report.turns)
     assert report.metrics.wer_reason == NO_TRANSCRIPT_REASON
+
+
+def test_redact_urls_in_free_text():
+    text = "failed: https://u:pw@api.example/v1/x?key=SECRET and ws://h:1/p#frag, done"
+    assert redact_urls(text) == "failed: https://api.example/v1/x and ws://h:1/p, done"
+    assert redact_urls("no url here") == "no url here"

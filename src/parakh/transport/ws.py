@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from urllib.parse import urlsplit, urlunsplit
 
 from websockets.asyncio.client import ClientConnection, connect
@@ -23,6 +24,21 @@ def redact_url(url: str) -> str:
         return "<unparseable url>"
     host = parts.netloc.rpartition("@")[2]
     return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
+_URL_IN_TEXT = re.compile(r"\b(?:wss?|https?)://[^\s'\"<>]+", re.IGNORECASE)
+_TRAILING_PUNCTUATION = ".,;:!?)]}"
+
+
+def redact_urls(text: str) -> str:
+    """Apply redact_url() to every ws, wss, http or https URL inside free text."""
+
+    def redact(match: re.Match[str]) -> str:
+        url = match.group(0)
+        stripped = url.rstrip(_TRAILING_PUNCTUATION)
+        return redact_url(stripped) + url[len(stripped) :]
+
+    return _URL_IN_TEXT.sub(redact, text)
 
 
 def check_agent_url(url: str) -> None:
