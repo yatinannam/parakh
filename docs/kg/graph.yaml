@@ -6,7 +6,7 @@
 # Edge rels:  depends_on, calls, produces, consumes, constrained_by,
 #             decided_by, mitigates, documented_in, delivered_in, compatible_with
 schema_version: 1
-updated: 2026-11-16
+updated: 2026-11-17
 
 nodes:
   # --- constraints (CLAUDE.md) ---
@@ -86,6 +86,7 @@ nodes:
   - {id: doc_free, type: doc, label: "Free-tier notes", path: docs/research/2026-11-15-free-tier-and-platform-notes.md}
   - {id: doc_runbook_keys, type: doc, label: "API keys runbook", path: docs/runbooks/api-keys.md}
   - {id: doc_runbook_calibrate, type: doc, label: "Calibrate WSL runbook", path: docs/runbooks/calibrate-wsl.md}
+  - {id: doc_runbook_m1, type: doc, label: "M1 run runbook", path: docs/runbooks/run-m1.md}
   - {id: doc_review_m0, type: doc, label: "M0 review", path: docs/reviews/2026-11-16-m0-review.md}
   - {id: doc_contributing, type: doc, label: "CONTRIBUTING", path: CONTRIBUTING.md}
   - {id: doc_plan_m1, type: doc, label: "M1 plan", path: docs/superpowers/plans/2026-11-16-m1-mvp.md}
@@ -135,6 +136,8 @@ edges:
   - {from: t_calibrate_eval, to: c_free, rel: constrained_by}
   - {from: t_calibrate_eval, to: c_synthetic, rel: constrained_by}
   - {from: x_calibrate, to: doc_runbook_calibrate, rel: documented_in}
+  - {from: test_agent, to: doc_runbook_m1, rel: documented_in}
+  - {from: cli, to: doc_runbook_m1, rel: documented_in}
   - {from: t_calibrate_eval, to: m0, rel: delivered_in}
   - {from: m0, to: doc_review_m0, rel: documented_in}
   - {from: m1, to: doc_plan_m1, rel: documented_in}

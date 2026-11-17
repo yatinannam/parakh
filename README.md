@@ -100,7 +100,7 @@ Planned packages (scenario, tts, degrade, transport, score, judge, budget, repor
 | [Calibrate analysis](docs/research/2026-11-15-calibrate-analysis.md) | Task 1: what Calibrate covers and lacks, the free-model run, and the verdict. |
 | [Free-tier and platform notes](docs/research/2026-11-15-free-tier-and-platform-notes.md) | Provider limits and data policies, Windows wheel checks, local model notes. |
 | [Knowledge graph](docs/kg/README.md) | `graph.yaml` plus generated Mermaid views of the pipeline, governance and milestones. |
-| [Runbooks](docs/runbooks/) | API keys; Calibrate in WSL. |
+| [Runbooks](docs/runbooks/) | API keys; Calibrate in WSL; the M1 real run. |
 
 ## Constraints
 
