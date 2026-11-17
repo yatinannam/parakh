@@ -54,13 +54,18 @@ async def _serve(config: AgentConfig, key: str, host: str, port: int) -> None:
 
     One pipeline serves call after call and resets its per-call state when a caller
     connects (bot.build_task). A new one is built only if the pipeline ends anyway,
-    for example after a fatal error.
+    for example after a fatal error. WorkerRunner.run swallows the cancellation that
+    Ctrl+C raises, so after each run we check for a pending cancel and stop instead of
+    building another pipeline.
     """
+    current = asyncio.current_task()
     while True:
         task, _transport = build_task(config, key, host=host, port=port)
         runner = WorkerRunner(handle_sigint=False)
         await runner.add_workers(task)
         await runner.run()
+        if current is not None and current.cancelling():
+            return
 
 
 if __name__ == "__main__":
