@@ -2,7 +2,7 @@
 
 Date: 2026-11-15
 Status: **approved by Yatin, 2026-11-15**
-Updated: 2026-11-17, M1 close-out: Pipecat pin and agent LLM (6.5), normaliser refinements (6.7), budget scope (6.8), M1 CLI (6.10), M1 exit criterion met (10), EC-10, EC-11, EC-48, EC-78, EC-81, EC-82 (11), D14 (12).
+Updated: 2026-11-17, M1 close-out: Pipecat pin and agent LLM (6.5), normaliser refinements (6.7), budget scope (6.8), M1 CLI (6.10), M1 exit criterion met (10), EC-10, EC-11, EC-48, EC-78, EC-81, EC-82 (11), D14 (12). M1 final review fixes: scenario limits (6.1), playback clock `loud_end` (6.4), one long-lived agent pipeline (6.5), per-turn WER of an unheard turn (6.7), exit 2 outside `run` (6.10), EC-27, EC-82 (11).
 Inputs: [CLAUDE.md](../../../CLAUDE.md), [Calibrate analysis](../../research/2026-11-15-calibrate-analysis.md), [free-tier notes](../../research/2026-11-15-free-tier-and-platform-notes.md)
 Knowledge graph: [docs/kg](../../kg/README.md)
 
