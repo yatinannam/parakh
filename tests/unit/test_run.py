@@ -10,6 +10,7 @@ from parakh.caller.pacer import JitterStats
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
 from parakh.run import _build_report, _git_sha, _ttfb_ms, exit_code
 from parakh.scenario import Scenario
+from parakh.score.wer import NO_TRANSCRIPT_REASON
 from parakh.transport.ws import redact_url
 
 
@@ -129,3 +130,54 @@ def test_greeting_items_are_dropped_not_given_to_turn_0():
 def test_redact_url():
     assert redact_url("wss://user:pw@h.example:8443/ws?token=abc#x") == "wss://h.example:8443/ws"
     assert redact_url("ws://h.example") == "ws://h.example"
+
+
+def _three_turn_scenario() -> Scenario:
+    return Scenario.model_validate(
+        {
+            "schema_version": 1,
+            "id": "s",
+            "title": "s",
+            "language": "en",
+            "domain": "d",
+            "clock": "2026-11-19T10:00:00+05:30",
+            "caller": {"voice": "v"},
+            "turns": [{"say": "one two"}, {"say": "three four"}, {"say": "five"}],
+        }
+    )
+
+
+def _wer_report(events: list[dict[str, Any]]) -> Report:
+    jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+    result = CallResult("turn_timeout", Path("."), 2, jitter, False, 0.0, {}, [])
+    return _build_report(
+        _three_turn_scenario(), result, events, run_id="r", agent_url="ws://h", preset="clean"
+    )
+
+
+def test_reached_turn_with_empty_transcript_has_wer_1():
+    # EC-46: an empty hypothesis gives WER 1.0. The agent exposes a transcript (turn 0
+    # has one), so turn 1, reached but unheard, is a full miss, not "no data".
+    events: list[dict[str, Any]] = [
+        {"kind": "caller_turn_start", "t_ms": 1000.0, "turn": 0},
+        {"kind": "caller_transcript", "t_ms": 1800.0, "text": "one two", "final": True},
+        {"kind": "caller_turn_start", "t_ms": 3000.0, "turn": 1},
+    ]
+    report = _wer_report(events)
+    assert (report.turns[0].strict_wer, report.turns[0].loose_wer) == (0.0, 0.0)
+    assert (report.turns[1].strict_wer, report.turns[1].loose_wer) == (1.0, 1.0)
+    assert report.turns[1].transcript == ""
+    # Turn 2 was never reached: no WER.
+    assert (report.turns[2].strict_wer, report.turns[2].loose_wer) == (None, None)
+    assert report.turns[2].latency_reason == "turn not reached"
+    assert report.metrics.wer_reason is None
+
+
+def test_no_caller_transcript_at_all_keeps_wer_null_with_reason():
+    events: list[dict[str, Any]] = [
+        {"kind": "caller_turn_start", "t_ms": 1000.0, "turn": 0},
+        {"kind": "caller_turn_start", "t_ms": 3000.0, "turn": 1},
+    ]
+    report = _wer_report(events)
+    assert all(t.strict_wer is None and t.loose_wer is None for t in report.turns)
+    assert report.metrics.wer_reason == NO_TRANSCRIPT_REASON

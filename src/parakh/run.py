@@ -115,12 +115,18 @@ def _build_report(
     agent_ttfb = grouped([(t, v) for t, v in ttfb if t >= first])
     latencies = response_latencies(events)
     by_turn = {x.turn: x for x in latencies}
+    # Per-turn WER needs a reached turn and an agent that exposes a transcript at all
+    # (otherwise metrics.wer_reason says why). A reached turn with an empty transcript
+    # is then a full miss: strict_wer and loose_wer give 1.0 for it (EC-46).
+    any_transcript = any(text.strip() for _t, text in finals)
 
     turns: list[TurnReport] = []
     for index, turn in enumerate(scenario.turns):
         text = " ".join(transcripts[index])
         lat = by_turn.get(index)
-        if index >= len(starts):
+        reached = index < len(starts)
+        scored = reached and any_transcript
+        if not reached:
             reason: str | None = "turn not reached"
         else:
             reason = None if lat is None else lat.reason
@@ -132,8 +138,8 @@ def _build_report(
                 transcript=text,
                 latency_ms=None if lat is None else lat.latency_ms,
                 latency_reason=reason,
-                strict_wer=strict_wer(turn.reference, text) if text.strip() else None,
-                loose_wer=loose_wer(turn.reference, text) if text.strip() else None,
+                strict_wer=strict_wer(turn.reference, text) if scored else None,
+                loose_wer=loose_wer(turn.reference, text) if scored else None,
                 agent_text=" ".join(agent_text[index]),
                 agent_ttfb_ms=list(agent_ttfb[index]),
             )

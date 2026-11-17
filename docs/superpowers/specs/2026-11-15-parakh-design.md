@@ -184,7 +184,7 @@ Parakh talks to it through an `EndStateAdapter` interface (`reset(seed, clock)`,
 - Report p50, p90, p95 and max per run and per preset. Also barge-in stop latency (M2) and the agent's own TTFB metrics when it reports them.
 
 **Recognition accuracy (WER)**
-- Measured only on the **agent's own transcript** of the caller (RTVI or `TranscriptionFrame`). If the agent does not expose one, WER is `null` with a reason. Whisper on the caller audio would measure Whisper, not the agent.
+- Measured only on the **agent's own transcript** of the caller (RTVI or `TranscriptionFrame`). If the agent does not expose one, WER is `null` with a reason. If it exposes one, a turn the caller played with no transcript gets per-turn WER 1.0 (EC-46); a turn never reached gets `null`. Whisper on the caller audio would measure Whisper, not the agent.
 - Alignment: transcript segments are grouped into caller turns by time window (from a turn's start to the next turn's start). Because agent VAD can split or merge turns, the **headline metric is conversation-level loose WER** (all references against all hypotheses, in order). Per-turn WER is a diagnostic.
 - Report both **strict WER** (jiwer on NFC, lowercased, punctuation stripped) and **loose WER** (script-tolerant, below), plus loose CER. The gap between them is itself a finding.
 
