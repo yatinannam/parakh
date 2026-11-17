@@ -103,7 +103,7 @@ Exit codes of `parakh run`. Every status still writes `report.json` and `report.
 | 2 | `turn_timeout`, `call_timeout`, `agent_disconnected`, `agent_unreachable`, `protocol_error`, `internal_error`, or any status when the caller could not keep its 20 ms pace (`timing_unreliable`). |
 | 130 | `interrupted`: Ctrl+C during the run. The report is written first. |
 
-Errors found before a call starts (unknown preset, a URL that is not ws:// or wss://, an invalid scenario, ffmpeg missing) print a message, write no run directory and exit 2. So do failures of `tts build` and an unreadable `report.json`.
+Errors found before a call starts (unknown preset, a URL that is not ws:// or wss://, an invalid scenario, ffmpeg missing, caller audio that edge-tts cannot synthesise or ffmpeg cannot decode) print a message without a traceback, write no run directory and exit 2. `tts build` exits 2 the same way for an invalid scenario, a synthesis or decode failure and a missing ffmpeg, and `report` for a `report.json` that is missing, not UTF-8 or not a valid report.
 
 ## How the measurement works
 

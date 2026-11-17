@@ -8,7 +8,6 @@ from urllib.parse import urlsplit
 import aiohttp
 import typer
 from edge_tts.exceptions import EdgeTTSException
-from pydantic import ValidationError
 
 from parakh import __version__
 from parakh.budget.estimate import GROQ_LLM_ASSUMED, GROQ_STT_LIMITS, estimate
@@ -73,18 +72,23 @@ def tts_build(
 
     try:
         total, built = asyncio.run(run())
-    except FfmpegMissing as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2) from exc
-    except (OSError, EdgeTTSException, aiohttp.ClientError) as exc:
-        typer.echo(f"tts build failed: {type(exc).__name__}: {exc}", err=True)
-        raise typer.Exit(2) from exc
+    except (FfmpegMissing, ScenarioError) as exc:
+        raise _fail(str(exc)) from exc
+    # ValueError: edge-tts rejects a malformed rate or pitch. RuntimeError: ffmpeg
+    # could not decode the synthesised audio.
+    except (OSError, EdgeTTSException, aiohttp.ClientError, ValueError, RuntimeError) as exc:
+        raise _fail(f"tts build failed: {_describe(exc)}") from exc
     typer.echo(f"{total} clips ({built} built, {total - built} cached)")
 
 
 def _fail(message: str) -> typer.Exit:
     typer.echo(message, err=True)
     return typer.Exit(2)
+
+
+def _describe(exc: Exception) -> str:
+    """Exception type and message on one line (ffmpeg errors span several)."""
+    return f"{type(exc).__name__}: {' '.join(str(exc).split())}"
 
 
 def _endpoint(url: str) -> str:
@@ -132,8 +136,9 @@ def run(
         )
     except (ValueError, ScenarioError, FfmpegMissing) as exc:
         raise _fail(str(exc)) from exc
-    except (OSError, EdgeTTSException, aiohttp.ClientError) as exc:
-        raise _fail(f"run failed: {type(exc).__name__}: {exc}") from exc
+    # RuntimeError: ffmpeg could not decode the synthesised caller audio.
+    except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
+        raise _fail(f"run failed: {_describe(exc)}") from exc
     latency = result.metrics.latency
     typer.echo(f"run dir: {run_dir}")
     typer.echo(f"status: {result.status}")
@@ -153,7 +158,9 @@ def report(
     """Re-render report.html from report.json."""
     try:
         loaded = load_report(run_dir / "report.json")
-    except (OSError, ValidationError) as exc:
+    # ValueError covers a file that is not UTF-8 (UnicodeDecodeError) and pydantic's
+    # ValidationError for JSON that is not a valid report.
+    except (OSError, ValueError) as exc:
         raise _fail(f"cannot read report.json in {run_dir}: {exc}") from exc
     typer.echo(str(write_report_html(loaded, run_dir)))
 

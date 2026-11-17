@@ -102,6 +102,8 @@ Get-NetTCPConnection -LocalPort 8765 -State Listen
 
 Exit code 2 also covers `timing unreliable`: the caller could not keep its 20 ms pace, so latency cannot be trusted. Every status still writes `report.json` and `report.html`.
 
+Errors before the call starts (an invalid scenario, ffmpeg missing, caller audio that edge-tts cannot synthesise or ffmpeg cannot decode) print a message without a traceback, write no run directory and exit 2. `parakh tts build` and `parakh report` exit 2 the same way on their own errors.
+
 ## Troubleshooting
 
 | Symptom | Cause | Action |

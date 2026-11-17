@@ -239,7 +239,7 @@ Typer. Core commands:
 
 Exit codes: 0 means everything passed; 1 means a task failed; 2 means an infrastructure problem (timeout, rate limit, timing unreliable).
 
-M1 ships `version`, `tts build`, `run`, `report` and `budget <scenario|dir>`; `run` accepts only `--preset clean`. `degrade` and `--presets` come with M2, `hms serve` with M4. Until task success exists (M4), exit 1 means the agent hung up before the first caller turn (`agent_hung_up_early`); every other non-completed status, and `timing_unreliable`, is 2.
+M1 ships `version`, `tts build`, `run`, `report` and `budget <scenario|dir>`; `run` accepts only `--preset clean`. `degrade` and `--presets` come with M2, `hms serve` with M4. Until task success exists (M4), exit 1 means the agent hung up before the first caller turn (`agent_hung_up_early`); every other non-completed status, and `timing_unreliable`, is 2. Errors before a call starts (invalid scenario, ffmpeg missing, caller audio that cannot be synthesised or decoded) and the errors of `tts build` and `report` (including a `report.json` that is not UTF-8) print a message without a traceback and exit 2.
 
 ## 7. Repo layout
 
