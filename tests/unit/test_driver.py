@@ -9,7 +9,7 @@ import pytest
 from parakh.caller import driver
 from parakh.caller.recorder import Recorder, read_events
 from parakh.caller.turns import TurnState
-from parakh.scenario import CallerVoice, Scenario, Turn
+from parakh.scenario import CallerVoice, Limits, Scenario, Turn
 from parakh.transport.codec import BOT_STOPPED, AgentAudio, ProtocolError, RtviMessage
 from parakh.transport.ws import AgentConnection
 
@@ -17,7 +17,7 @@ T0 = 1_000_000_000
 MS = 1_000_000
 
 
-def _scenario() -> Scenario:
+def _scenario(limits: Limits | None = None) -> Scenario:
     return Scenario(
         schema_version=1,
         id="unit-call",
@@ -27,6 +27,7 @@ def _scenario() -> Scenario:
         clock=datetime(2026, 11, 16, 10, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))),
         caller=CallerVoice(voice="hi-IN-SwaraNeural"),
         turns=[Turn(say="haan")],
+        limits=limits or Limits(),
     )
 
 
@@ -105,3 +106,23 @@ def test_pipecat_twin_messages_are_recorded_once(tmp_path: Path) -> None:
         "bot-output",
         "user-transcription",
     ]
+
+
+def test_silent_agent_frames_do_not_suppress_turn_timeout(tmp_path: Path) -> None:
+    # EC-27: frames at or below -45 dBFS are not speech. An agent that streams
+    # silence while it says nothing must still time out in WAIT_AGENT, not move
+    # to AGENT_SPEAKING and wait there until call_timeout.
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    rec = Recorder(tmp_path / "run", T0)
+    silent = AgentAudio(b"\x00\x00" * 320, 16000, 1)  # one 20 ms frame of zeros
+    try:
+        call = driver._Call(_scenario(Limits(response_timeout_s=1.0)), [clip], rec, T0, 16000, 800)
+        kinds = []
+        for k in range(60):  # 1.2 s, one silent frame per 20 ms step
+            now = T0 + k * 20 * MS
+            call._on_event(silent, now)
+            kinds.append(call._step(now).kind)
+            assert call.machine.state is not TurnState.AGENT_SPEAKING
+    finally:
+        rec.close()
+    assert kinds.index("timeout") == 50  # 1000 ms after the wait began

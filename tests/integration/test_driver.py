@@ -259,6 +259,43 @@ async def test_close_after_reply_to_max_turns_is_completed(tmp_path: Path) -> No
     _assert_ends_with_call_end(events, "completed")
 
 
+@pytest.mark.parametrize("burst", [True, False])
+async def test_agent_streaming_silence_between_replies_completes(
+    tmp_path: Path, burst: bool
+) -> None:
+    # EC-27: silent frames are not speech. They used to extend the playback end,
+    # so an agent that streams silence between replies never left AGENT_SPEAKING
+    # and every call ended call_timeout.
+    behaviour = FakeBehaviour(stream_silence=True, burst=burst)
+    result, events = await _call(tmp_path, behaviour, turns=2, call_timeout_s=10.0)
+    assert result.status == "completed"
+    assert result.turns_started == 2
+    assert any(e["dbfs"] <= SPEECH_DBFS for e in _kinds(events, "agent_audio"))
+    latencies = response_latencies(events)
+    print("latencies_ms", [x.latency_ms for x in latencies])
+    assert [x.turn for x in latencies] == [0, 1]
+    for x in latencies:
+        assert x.latency_ms is not None
+        assert abs(x.latency_ms - 500) <= TOL_MS
+    # The first caller turn starts when the greeting's loud audio ends (bot-stopped
+    # latch), not after the silence streamed behind it.
+    loud = [e for e in _kinds(events, "agent_audio") if e["dbfs"] > SPEECH_DBFS]
+    first_turn = _kinds(events, "caller_turn_start")[0]["t_ms"]
+    assert 600 <= first_turn - loud[0]["t_ms"] < 600 + 200
+    _assert_ends_with_call_end(events, "completed")
+
+
+async def test_agent_streaming_silence_still_times_out(tmp_path: Path) -> None:
+    # Silent frames in WAIT_AGENT must not count as the reply starting.
+    behaviour = FakeBehaviour(stream_silence=True, silent_after_turn=0)
+    result, events = await _call(tmp_path, behaviour, turns=2, call_timeout_s=8.0)
+    assert result.status == "turn_timeout"
+    assert result.turns_started == 1
+    turn_end = _kinds(events, "caller_turn_end")[0]["t_ms"]
+    assert events[-1]["t_ms"] - turn_end == pytest.approx(1500, abs=100)
+    _assert_ends_with_call_end(events, "turn_timeout")
+
+
 async def test_close_before_final_reply_is_disconnected(tmp_path: Path) -> None:
     result, events = await _call(tmp_path, FakeBehaviour(close_before_reply_to=1), turns=2)
     assert result.status == "agent_disconnected"

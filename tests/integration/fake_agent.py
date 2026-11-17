@@ -44,7 +44,9 @@ class FakeBehaviour:
     not a reply. silent_after_turn N means no reply to utterance N or any later one.
     close_after_replies N closes the socket after the N-th reply; close_before_reply_to
     N closes it when the reply to utterance N would start. accept_delay_ms holds the
-    opening handshake back, so connecting takes that long.
+    opening handshake back, so connecting takes that long. stream_silence sends a
+    silent 20 ms frame every 20 ms whenever the agent is not speaking, as some
+    telephony agents do, from connect to close.
     """
 
     greet_ms: int | None = 300
@@ -60,6 +62,7 @@ class FakeBehaviour:
     agent_info: dict[str, Any] | None = None
     close_before_reply_to: int | None = None
     accept_delay_ms: int = 0
+    stream_silence: bool = False
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -109,9 +112,13 @@ class _Session:
         self._reply = [
             _audio(pcm, behaviour.out_rate) for pcm in split_frames(tone, behaviour.out_rate)
         ]
+        self._silence = _audio(
+            np.zeros(behaviour.out_rate // 50, dtype=np.int16), behaviour.out_rate
+        )
         self._start_ns = time.perf_counter_ns()
         self._last_loud_ns = 0
         self._waiting = False
+        self._speaking = False
         self._utterances = 0
         self._replies = 0
 
@@ -130,6 +137,8 @@ class _Session:
                 await self._ws.send(_rtvi("server-message", {"agent_info": b.agent_info}))
             if b.greet_ms is not None:
                 self._spawn(self._greet(b.greet_ms))
+            if b.stream_silence:
+                self._spawn(self._stream_silence())
             async for message in self._ws:
                 self._on_message(message)
         except ConnectionClosed:
@@ -179,7 +188,16 @@ class _Session:
         if b.close_after_replies is not None and self._replies >= b.close_after_replies:
             await self._ws.close()
 
+    async def _stream_silence(self) -> None:
+        k = 0
+        while True:
+            k += 1
+            await _sleep_until(self._start_ns + k * _FRAME_NS)
+            if not self._speaking:
+                await self._ws.send(self._silence)
+
     async def _speak(self) -> None:
+        self._speaking = True
         await self._ws.send(_rtvi("bot-started-speaking"))
         start_ns = time.perf_counter_ns()
         for k, message in enumerate(self._reply):
@@ -190,6 +208,7 @@ class _Session:
             # driver reads it on arrival, as it would from an agent in its own process.
             await asyncio.sleep(0)
         await self._ws.send(_rtvi("bot-stopped-speaking"))
+        self._speaking = False
 
 
 @asynccontextmanager

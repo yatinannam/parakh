@@ -8,15 +8,35 @@ def test_burst_arrivals_play_in_real_time() -> None:
     assert clock.playback_end_ns is None
     assert not clock.speaking(0)
     for _ in range(10):
-        clock.on_audio(0, 320, 16_000)
+        clock.on_audio(0, 320, 16_000, loud=True)
     assert clock.playback_end_ns == 200 * MS
     assert clock.speaking(150 * MS)
     assert not clock.speaking(201 * MS)
-    clock.on_audio(500 * MS, 320, 16_000)
+    clock.on_audio(500 * MS, 320, 16_000, loud=True)
     assert clock.playback_end_ns == 520 * MS
 
 
 def test_playback_clock_uses_frame_rate() -> None:
     clock = PlaybackClock()
-    clock.on_audio(0, 480, 24_000)
+    clock.on_audio(0, 480, 24_000, loud=True)
     assert clock.playback_end_ns == 20 * MS
+
+
+def test_silent_frames_keep_their_place_but_do_not_count_as_speaking() -> None:
+    # EC-27: "agent speaking" needs a frame above -45 dBFS. A silent frame still
+    # takes its place on the timeline (the recorder places it there), but it
+    # does not extend loud_end, so an agent streaming silence is not speaking.
+    clock = PlaybackClock()
+    assert clock.loud_end_ns is None
+    assert clock.on_audio(0, 320, 16_000, loud=False) == 0
+    assert clock.playback_end_ns == 20 * MS
+    assert clock.loud_end_ns is None
+    assert not clock.speaking(10 * MS)
+    assert clock.on_audio(0, 3200, 16_000, loud=True) == 20 * MS
+    assert clock.loud_end_ns == 220 * MS
+    for k in range(50):
+        clock.on_audio(k * 20 * MS, 320, 16_000, loud=False)
+    assert clock.playback_end_ns == 1220 * MS
+    assert clock.loud_end_ns == 220 * MS
+    assert clock.speaking(219 * MS)
+    assert not clock.speaking(220 * MS)

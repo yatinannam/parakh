@@ -1,7 +1,9 @@
 """Pure turn-taking state machine for the scripted caller.
 
 The driver steps it every 20 ms. All inputs arrive as arguments: no I/O, no clock
-reads. Times are float milliseconds since call start.
+reads. Times are float milliseconds since call start. The driver passes the playback
+end of the last loud agent frame (above -45 dBFS) as playback_end_ms, so silent
+frames neither keep the agent speaking nor move that end.
 
 Rules:
 1. Caller-first: with agent_speaks_first false and no agent audio by

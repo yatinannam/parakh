@@ -253,7 +253,9 @@ class _Call:
         bot_stopped = self._bot_stopped and self.machine.state is TurnState.AGENT_SPEAKING
         if bot_stopped:
             self._bot_stopped = False
-        end_ns = self._clock.playback_end_ns
+        # The machine sees the playback end of the last loud frame (EC-27), so the
+        # 800 ms fallback and the bot-stopped latch ignore silence streamed after it.
+        end_ns = self._clock.loud_end_ns
         return self.machine.step(
             self._ms(now_ns),
             agent_speaking=self._clock.speaking(now_ns),
@@ -313,11 +315,10 @@ class _Call:
 
     def _on_audio(self, audio: AgentAudio, now: int) -> None:
         pcm = agent_pcm(audio)
+        loud = dbfs(pcm) > SPEECH_DBFS
         if self._speech_end_ns is not None and now > self._speech_end_ns:
-            self._reply_heard = self._reply_heard or dbfs(pcm) > SPEECH_DBFS
-        previous_end = self._clock.playback_end_ns
-        start = now if previous_end is None else max(previous_end, now)
-        self._clock.on_audio(now, len(pcm), audio.sample_rate)
+            self._reply_heard = self._reply_heard or loud
+        start = self._clock.on_audio(now, len(pcm), audio.sample_rate, loud=loud)
         self._rec.agent_frame(now, pcm, audio.sample_rate, self._ms(start))
 
     def _on_rtvi(self, msg: RtviMessage, now: int) -> None:
