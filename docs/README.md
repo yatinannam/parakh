@@ -15,3 +15,4 @@
 | [`runbooks/calibrate-wsl.md`](runbooks/calibrate-wsl.md) | Running Calibrate's text simulation in WSL on free models; troubleshooting; run log. |
 | [`runbooks/run-m1.md`](runbooks/run-m1.md) | M1 real run: start the clinic agent, run the Hinglish scenario, read the report, statuses, Groq budget, troubleshooting, run log. |
 | [`reviews/2026-11-16-m0-review.md`](reviews/2026-11-16-m0-review.md) | M0 code review: findings fixed, minors deferred, rulings. |
+| [`reviews/2026-11-17-m1-review.md`](reviews/2026-11-17-m1-review.md) | M1 review: per-task outcomes, final review fixes, rulings, deferred findings, live-run notes. |

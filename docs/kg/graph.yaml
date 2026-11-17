@@ -91,6 +91,7 @@ nodes:
   - {id: doc_runbook_calibrate, type: doc, label: "Calibrate WSL runbook", path: docs/runbooks/calibrate-wsl.md}
   - {id: doc_runbook_m1, type: doc, label: "M1 run runbook", path: docs/runbooks/run-m1.md}
   - {id: doc_review_m0, type: doc, label: "M0 review", path: docs/reviews/2026-11-16-m0-review.md}
+  - {id: doc_review_m1, type: doc, label: "M1 review", path: docs/reviews/2026-11-17-m1-review.md}
   - {id: doc_contributing, type: doc, label: "CONTRIBUTING", path: CONTRIBUTING.md}
   - {id: doc_plan_m1, type: doc, label: "M1 plan", path: docs/superpowers/plans/2026-11-16-m1-mvp.md}
   - {id: doc_pipecat_evals, type: doc, label: "pipecat.evals note", path: docs/research/2026-11-16-pipecat-evals-note.md}
@@ -147,6 +148,7 @@ edges:
   - {from: t_calibrate_eval, to: m0, rel: delivered_in}
   - {from: m0, to: doc_review_m0, rel: documented_in}
   - {from: m1, to: doc_plan_m1, rel: documented_in}
+  - {from: m1, to: doc_review_m1, rel: documented_in}
   - {from: c_mit, to: doc_contributing, rel: documented_in}
   - {from: r_license, to: doc_contributing, rel: documented_in}
   # externals
