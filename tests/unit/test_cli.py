@@ -2,8 +2,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from click.testing import Result
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from parakh import __version__, cli
 from parakh.cli import app
