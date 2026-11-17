@@ -18,21 +18,22 @@ nodes:
   - {id: c_windows, type: constraint, label: "Windows dev box", summary: "Timer granularity, CRLF, paths with spaces."}
 
   # --- components ---
-  - {id: scenario, type: component, label: "Scenario loader", summary: "YAML + pydantic, schema_version.", path: src/parakh/scenario}
-  - {id: tts_cache, type: component, label: "Caller TTS + cache", summary: "edge-tts now, Parler later; sha256 cache; speech_end_ms.", path: src/parakh/tts}
+  - {id: scenario, type: component, label: "Scenario loader", summary: "M1: YAML validated by pydantic (schema_version 1); BOM and CRLF accepted; ref defaults to say; frozen clock with timezone; limits.", path: src/parakh/scenario}
+  - {id: tts_cache, type: component, label: "Caller TTS + cache", summary: "M1: edge-tts MP3 decoded by ffmpeg to 16 kHz mono; silence trimmed; speech_end_ms at -45 dBFS; sha256 content cache in .cache/tts. Parler later.", path: src/parakh/tts}
   - {id: degrader, type: component, label: "Degrader", summary: "Band-limit, 8 kHz, mu-law, noise at SNR, packet loss, clipping; seeded presets.", path: src/parakh/degrade}
-  - {id: call_driver, type: component, label: "Call driver", summary: "Pipecat protobuf WS client; 20 ms pacer; virtual playback clock; turn-taking; barge-in; recorder.", path: src/parakh/transport}
-  - {id: test_agent, type: component, label: "Clinic test agent", summary: "Pipecat bot: Silero VAD, Groq STT + LLM, edge-tts TTS.", path: agents/clinic_agent}
+  - {id: call_driver, type: component, label: "Call driver", summary: "M1: 20 ms absolute-deadline pacer (p99 jitter above 30 ms marks timing unreliable), virtual playback clock, turn machine (800 ms silence or bot-stopped-speaking), recorder writing events.jsonl from a thread plus caller.wav and agent.wav. Barge-in in M2.", path: src/parakh/caller}
+  - {id: transport_codec, type: component, label: "Transport + codec", summary: "M1: Pipecat protobuf frames over a ws:// or wss:// WebSocket; defensive RTVI parsing; RtviRepeats records each Pipecat 1.16 repeat once (EC-78); agent URL redaction (EC-82).", path: src/parakh/transport}
+  - {id: test_agent, type: component, label: "Clinic test agent", summary: "M1: Pipecat 1.16 bot with ProtobufFrameSerializer: Silero VAD, Groq whisper-large-v3-turbo (hi), openai/gpt-oss-20b with in-memory booking tools, edge-tts en-IN-NeerjaNeural; one PipelineWorker per call; RTVI metrics on.", path: agents/clinic_agent}
   - {id: mock_hms, type: component, label: "Mock HMS", summary: "Hospital management system stub: FastAPI + SQLite; reset/state.", path: services/mock_hms}
   - {id: end_state_adapter, type: component, label: "EndStateAdapter", summary: "reset(seed, clock), fetch_state(). MockHmsAdapter first.", path: src/parakh/adapters}
-  - {id: score_latency, type: component, label: "Latency scorer", summary: "Speech end to first agent audio > -45 dBFS; p50/p95; barge-in stop latency.", path: src/parakh/score}
-  - {id: normalizer, type: component, label: "Script-tolerant normaliser", summary: "NFC, numbers, Indic to Roman, loose phonetic key, variant table, skeleton match.", path: src/parakh/score}
-  - {id: score_wer, type: component, label: "WER scorer", summary: "Strict + loose WER/CER on agent's own transcript; conversation-level headline.", path: src/parakh/score}
+  - {id: score_latency, type: component, label: "Latency scorer", summary: "M1: caller speech end to the first agent frame above -45 dBFS before the next turn; p50, p90, p95, max. Barge-in stop latency in M2.", path: src/parakh/score/latency.py}
+  - {id: normalizer, type: component, label: "Script-tolerant normaliser", summary: "M1: NFC and zero-width removal, Devanagari to ITRANS (nasal to n, candra o, final schwa), number words to digits with joined groups, loose phonetic key, variant table, consonant-skeleton match. Hardened to 150+ golden pairs in M3.", path: src/parakh/score/normalize.py}
+  - {id: score_wer, type: component, label: "WER scorer", summary: "M1: strict and loose WER plus loose CER on the agent's own transcript; own Levenshtein with the loose equality; turns grouped by time window; conversation-level loose WER is the headline.", path: src/parakh/score/wer.py}
   - {id: score_task, type: component, label: "Task success", summary: "Final HMS state vs expect; pass/fail + diff.", path: src/parakh/score}
   - {id: judge, type: component, label: "LLM judge", summary: "Groq first, Gemini fallback; JSON rubric; advisory only.", path: src/parakh/judge}
-  - {id: budget, type: component, label: "Budget + quota guard", summary: "Estimate, token buckets, daily counter, 429 backoff, remote_call() choke point.", path: src/parakh/budget}
-  - {id: report, type: component, label: "Report", summary: "report.json (versioned) + self-contained report.html + preset comparison.", path: src/parakh/report}
-  - {id: cli, type: component, label: "CLI", summary: "Typer: tts build, degrade, run, report, budget, hms serve.", path: src/parakh/cli.py}
+  - {id: budget, type: component, label: "Budget + quota guard", summary: "M1: Groq request estimate per scenario and the remote_call() choke point (guards edge-tts). Token buckets, daily counter and 429 backoff in M3 (EC-10, EC-11).", path: src/parakh/budget}
+  - {id: report, type: component, label: "Report", summary: "M1: report.json (schema_version 1) and a self-contained, escaped report.html with per-turn latency, strict and loose WER, marked misses and agent TTFB. Preset comparison in M2.", path: src/parakh/report}
+  - {id: cli, type: component, label: "CLI", summary: "M1 Typer commands: version, tts build, run, report, budget. Exit 0 completed, 1 agent hung up early, 2 infrastructure. degrade in M2, hms serve in M4.", path: src/parakh/cli.py}
   - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml: test (ubuntu, windows), secrets (gitleaks); e2e.yml in M4.", path: .github/workflows}
 
   - {id: t_no_emoji, type: component, label: "No-emoji guard", summary: "Fails on emoji in tracked text files; run in pre-commit and CI.", path: tools/no_emoji.py}
@@ -50,7 +51,8 @@ nodes:
   - {id: x_edge_tts, type: external, label: "edge-tts", summary: "LGPL-3.0, unofficial MS read-aloud. No key."}
   - {id: x_parler, type: external, label: "Indic Parler-TTS", summary: "Apache-2.0, CPU speed unknown; offline only."}
   - {id: x_whisper, type: external, label: "faster-whisper small int8", summary: "Local CPU scoring of agent replies without text."}
-  - {id: x_pipecat, type: external, label: "Pipecat", summary: "BSD-2. Protobuf frames: Text, AudioRaw, Transcription, Message, Interruption."}
+  - {id: x_pipecat, type: external, label: "Pipecat", summary: "BSD-2, pinned pipecat-ai==1.16.0. Protobuf frames: Text, AudioRaw, Transcription, Message, Interruption."}
+  - {id: x_pipecat_evals, type: external, label: "pipecat.evals", summary: "New in Pipecat 1.16: scripted and simulated scenarios, cached TTS user, LLM judge, suite runner, 40 ms paced user audio, within_ms budgets. Needs EvalTransport + EvalSerializer in the bot; no degradation, script-tolerant WER or latency distributions."}
   - {id: x_calibrate, type: external, label: "Calibrate", summary: "CC-BY-SA eval framework. Lacks codec/noise, Hinglish scoring for external agents, latency distribution, free voice path. Text sim ran free via wrapper on 2026-11-16."}
   - {id: x_indic_translit, type: external, label: "indic-transliteration", summary: "MIT. Devanagari/Kannada/Tamil to Roman."}
   - {id: x_wsl, type: external, label: "WSL2 Ubuntu", summary: "Hosts Calibrate install (simpleaudio needs Linux build)."}
@@ -67,18 +69,19 @@ nodes:
   - {id: d9, type: decision, label: "D9 Pack ships text, not edge-tts audio", summary: "edge-tts output terms unclear.", by: claude}
   - {id: d10, type: decision, label: "D10 Real recordings stay local", summary: "Synthetic script, real voice, local STT.", by: claude}
   - {id: d11, type: decision, label: "D11 Headline = conversation loose WER", summary: "Agent's own transcript only.", by: claude}
+  - {id: d14, type: decision, label: "D14 Own call driver; pipecat.evals complementary", summary: "Parakh tests unmodified agents that serve Pipecat's protobuf serializer; pipecat.evals needs its own transport and serializer in the bot.", by: claude_delegated}
 
   # --- risks (edge-case groups, see spec section 11) ---
-  - {id: r_timing, type: risk, label: "Timing accuracy", summary: "EC-02, EC-28, EC-36, EC-37, EC-39."}
-  - {id: r_quota, type: risk, label: "Free-tier quota", summary: "EC-10..EC-15, EC-71."}
-  - {id: r_script, type: risk, label: "Script/spelling mismatch", summary: "EC-40..EC-44, EC-49."}
-  - {id: r_alignment, type: risk, label: "Turn alignment", summary: "EC-33, EC-47."}
+  - {id: r_timing, type: risk, label: "Timing accuracy", summary: "EC-02, EC-28, EC-36, EC-37, EC-39, EC-81."}
+  - {id: r_quota, type: risk, label: "Free-tier quota", summary: "EC-10..EC-15, EC-71. EC-10 and EC-11 guards move to M3; the M1 estimate undercounts real agent use."}
+  - {id: r_script, type: risk, label: "Script/spelling mismatch", summary: "EC-40..EC-44, EC-49, EC-79."}
+  - {id: r_alignment, type: risk, label: "Turn alignment", summary: "EC-33, EC-47, EC-78 (Pipecat 1.16 repeats each transcript and bot segment)."}
   - {id: r_injection, type: risk, label: "Judge prompt injection", summary: "EC-50."}
   - {id: r_license, type: risk, label: "Licence contamination", summary: "EC-61..EC-64."}
-  - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60."}
+  - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60; EC-82 agent URL credentials redacted."}
   - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
   - {id: r_supply_chain, type: risk, label: "Supply chain (CI and hooks)", summary: "EC-75: moved Action or hook tags. Actions and pre-commit hooks SHA-pinned, guarded by tests/unit/test_supply_chain_pins.py; Dependabot for Actions."}
-  - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings. Both seen in the Task 1 run."}
+  - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings (both seen in the Task 1 run), EC-80 a provider request failing mid-call (seen in M1)."}
 
   # --- docs ---
   - {id: doc_spec, type: doc, label: "Design spec", path: docs/superpowers/specs/2026-11-15-parakh-design.md}
@@ -90,10 +93,11 @@ nodes:
   - {id: doc_review_m0, type: doc, label: "M0 review", path: docs/reviews/2026-11-16-m0-review.md}
   - {id: doc_contributing, type: doc, label: "CONTRIBUTING", path: CONTRIBUTING.md}
   - {id: doc_plan_m1, type: doc, label: "M1 plan", path: docs/superpowers/plans/2026-11-16-m1-mvp.md}
+  - {id: doc_pipecat_evals, type: doc, label: "pipecat.evals note", path: docs/research/2026-11-16-pipecat-evals-note.md}
 
   # --- milestones ---
   - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run", summary: "Complete 2026-11-16: repo hygiene, CI, tools, Groq key check, Calibrate text sim on free models, final verdict."}
-  - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER", summary: "Planned 2026-11-16: 16 tasks; pipecat-ai 1.16.0; own call driver (D14 pending)."}
+  - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER", summary: "Complete 2026-11-17: run 6b5d9138 against the clinic agent completed with exit 0; 4 turns, latency p50 4808 ms, p95 6769 ms, strict WER 100.0 %, loose WER 16.7 %. pipecat-ai 1.16.0; own call driver (D14)."}
   - {id: m2, type: milestone, label: "M2 Degradation + interruptions"}
   - {id: m3, type: milestone, label: "M3 Indic layer + judge"}
   - {id: m4, type: milestone, label: "M4 HMS adapter + CI e2e"}
@@ -107,6 +111,8 @@ edges:
   - {from: tts_cache, to: degrader, rel: produces}
   - {from: degrader, to: call_driver, rel: produces}
   - {from: call_driver, to: test_agent, rel: calls}
+  - {from: call_driver, to: transport_codec, rel: calls}
+  - {from: transport_codec, to: test_agent, rel: compatible_with}
   - {from: test_agent, to: mock_hms, rel: calls}
   - {from: call_driver, to: score_latency, rel: produces}
   - {from: call_driver, to: score_wer, rel: produces}
@@ -146,7 +152,8 @@ edges:
   # externals
   - {from: tts_cache, to: x_edge_tts, rel: depends_on}
   - {from: tts_cache, to: x_parler, rel: depends_on}
-  - {from: call_driver, to: x_pipecat, rel: depends_on}
+  - {from: transport_codec, to: x_pipecat, rel: depends_on}
+  - {from: x_pipecat_evals, to: x_pipecat, rel: depends_on}
   - {from: test_agent, to: x_pipecat, rel: depends_on}
   - {from: test_agent, to: x_groq, rel: calls}
   - {from: test_agent, to: x_edge_tts, rel: depends_on}
@@ -176,11 +183,15 @@ edges:
   - {from: tts_cache, to: d9, rel: decided_by}
   - {from: budget, to: d10, rel: decided_by}
   - {from: score_wer, to: d11, rel: decided_by}
+  - {from: call_driver, to: d14, rel: decided_by}
+  - {from: x_pipecat_evals, to: d14, rel: decided_by}
   # risk mitigation
   - {from: call_driver, to: r_timing, rel: mitigates}
   - {from: budget, to: r_quota, rel: mitigates}
   - {from: normalizer, to: r_script, rel: mitigates}
   - {from: score_wer, to: r_alignment, rel: mitigates}
+  - {from: transport_codec, to: r_alignment, rel: mitigates}
+  - {from: transport_codec, to: r_privacy, rel: mitigates}
   - {from: judge, to: r_injection, rel: mitigates}
   - {from: d9, to: r_license, rel: mitigates}
   - {from: d10, to: r_privacy, rel: mitigates}
@@ -193,11 +204,17 @@ edges:
   - {from: x_calibrate, to: doc_calibrate, rel: documented_in}
   - {from: x_groq, to: doc_free, rel: documented_in}
   - {from: d1, to: doc_spec, rel: documented_in}
+  - {from: d14, to: doc_spec, rel: documented_in}
+  - {from: d14, to: doc_pipecat_evals, rel: documented_in}
+  - {from: x_pipecat_evals, to: doc_pipecat_evals, rel: documented_in}
+  - {from: m1, to: doc_runbook_m1, rel: documented_in}
   # milestones
   - {from: x_calibrate, to: m0, rel: delivered_in}
   - {from: scenario, to: m1, rel: delivered_in}
   - {from: tts_cache, to: m1, rel: delivered_in}
   - {from: call_driver, to: m1, rel: delivered_in}
+  - {from: transport_codec, to: m1, rel: delivered_in}
+  - {from: normalizer, to: m1, rel: delivered_in}
   - {from: test_agent, to: m1, rel: delivered_in}
   - {from: score_latency, to: m1, rel: delivered_in}
   - {from: score_wer, to: m1, rel: delivered_in}

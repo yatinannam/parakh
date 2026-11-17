@@ -2,6 +2,7 @@
 
 Date: 2026-11-15
 Status: **approved by Yatin, 2026-11-15**
+Updated: 2026-11-17, M1 close-out: Pipecat pin and agent LLM (6.5), normaliser refinements (6.7), budget scope (6.8), M1 CLI (6.10), M1 exit criterion met (10), EC-10, EC-11, EC-48, EC-78, EC-81, EC-82 (11), D14 (12).
 Inputs: [CLAUDE.md](../../../CLAUDE.md), [Calibrate analysis](../../research/2026-11-15-calibrate-analysis.md), [free-tier notes](../../research/2026-11-15-free-tier-and-platform-notes.md)
 Knowledge graph: [docs/kg](../../kg/README.md)
 
@@ -160,13 +161,14 @@ Presets (config, not code): `clean`; `phone` (band-limit, 8 kHz, mu-law); `phone
 ### 6.5 Test agent (`agents/clinic_agent`)
 
 A Pipecat bot for a synthetic clinic receptionist ("Parakh Clinic"), served with Pipecat's WebSocket server transport and `ProtobufFrameSerializer`.
+- Pipecat is pinned to `pipecat-ai==1.16.0`. Core Parakh uses it only for the generated protobuf module; the agent installs `pipecat-ai[websocket,silero,groq]==1.16.0` from the uv dependency group `agent`. The agent runs each pipeline as a `PipelineWorker` under a `WorkerRunner` (`PipelineTask` and `PipelineRunner` are deprecated in 1.16) and builds a fresh pipeline for every call, so no state carries over between calls.
 - VAD: Silero (local, ONNX).
 - STT: Groq Whisper (`whisper-large-v3-turbo`, language hint `hi` for Hinglish scenarios). A local faster-whisper STT mode exists for runs with real recordings (D10).
-- LLM: a Groq chat model with function calling. The model id lives in config. The system prompt states how the call opens (the agent greets first) and when it may end (EC-76).
+- LLM: a Groq chat model with function calling. The model id lives in config (`agents/clinic_agent/config.yaml`); the default is `openai/gpt-oss-20b`, because Groq no longer lists Llama 3.3. Alternatives Groq lists: `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`. The agent lists Groq's models at startup and exits with code 2 if a configured model is missing (EC-12). The system prompt states how the call opens (the agent greets first) and when it may end (EC-76).
 - TTS: a small custom Pipecat TTS service wrapping edge-tts (MP3 decoded to PCM via an ffmpeg pipe), voice `en-IN-NeerjaNeural` or `hi-IN-SwaraNeural`.
 - Emits RTVI transcription messages, so Parakh can read the agent's own transcript of the caller.
 - MVP tools are in-memory stubs. In M4 the tools call the mock HMS over HTTP.
-- The frozen scenario clock reaches the agent through a session-start message and through the HMS.
+- The frozen scenario clock reaches the agent through a session-start message and through the HMS. In M1 the agent reads the same clock from its own `config.yaml` (equal to the scenario's `clock`); the session-start message arrives with the HMS in M4, where the clock first changes outcomes.
 
 ### 6.6 Mock HMS and end-state adapter (M4)
 
@@ -187,14 +189,16 @@ Parakh talks to it through an `EndStateAdapter` interface (`reset(seed, clock)`,
 - Report both **strict WER** (jiwer on NFC, lowercased, punctuation stripped) and **loose WER** (script-tolerant, below), plus loose CER. The gap between them is itself a finding.
 
 **Script-tolerant normaliser**, applied to reference and hypothesis alike:
-1. Unicode NFC, lowercase, strip punctuation (including danda), keep digits.
-2. Numbers to digit strings: English and Hindi number words (0-100, hundreds, "double five"), digit sequences joined for phone numbers.
-3. Indic script to Roman with `indic-transliteration` (MIT): Devanagari now, Kannada and Tamil in M3.
-4. Loose phonetic key: collapse vowel length (aa to a, ee to i, oo to u), drop nasal marks, `w` to `v`, `ph` to `f`, `q` to `k`, double letters to single, final-schwa handling.
-5. A small curated variant table for frequent Hinglish spellings (`nahi/nahin/nai`, `hai/he`). Ambiguous pairs such as `main/mein` are deliberately **not** merged.
+1. Unicode NFC, then remove zero-width joiners and non-joiners (U+200C, U+200D); lowercase, strip punctuation (including danda), keep digits.
+2. Numbers to digit strings: English and Hindi number words (0-100, "X hundred [and] Y" combined into one number, "double five"), digit sequences joined for phone numbers.
+3. Indic script to Roman with `indic-transliteration` (MIT), ITRANS scheme: Devanagari now, Kannada and Tamil in M3.
+4. Loose phonetic key. On the Devanagari side, as each word is transliterated: candra o (`ॉ`, `ऑ`) becomes `ो`, `ओ` before ITRANS, so English loanwords such as `डॉक्टर` read as `doktar`; anusvara and chandrabindu become `n`, or `m` before p, b and m (`मैं` gives `main`, `हाँ` gives `han`, `नंबर` gives `nambar`), instead of being dropped, because dropping them means `मैं` can never match `main`; the inherent final schwa is dropped only when the ITRANS form of a word has three or more characters and ends in a lowercase `a` after a non-vowel (`कल` gives `kal`, while `मेरा` keeps its long `A` and gives `mera`). On every token: collapse vowel length (aa to a, ee to i, oo to u) through the double-letter rule, `c` (not before h) to `k`, `w` to `v`, `ph` to `f`, `q` to `k`, `z` to `j`, final `ov` to `o`, double letters to single, `y` between vowels dropped (`chahiye` and `चाहिए` both give `chahie`).
+5. A small curated variant table for frequent Hinglish spellings (M1: `nahin` and `nai` to `nahi`, `men` and `me` to `mein`, `rav` to `rao`). Ambiguous pairs such as `main/mein` are deliberately **not** merged.
 6. Token match = equal loose keys, or (fallback) equal consonant skeletons with similar length. This catches English words written in Devanagari ("ऑर्डर" vs "order").
 7. Edit distance computed by our own Levenshtein over keys with that equality rule (jiwer cannot take a custom equality).
 8. Perso-Arabic (Urdu) script in a hypothesis is detected and flagged `script_unsupported`. That turn is excluded from loose WER and listed in the report.
+
+The code runs step 3 before step 2, so Devanagari number words such as `दो` are read as numbers too.
 
 The normaliser ships with a golden test file of pairs that must match and pairs that must not match.
 
@@ -215,6 +219,7 @@ The normaliser ships with a golden test file of pairs that must match and pairs 
 - A token bucket per (provider, model) runs in-process. A daily counter lives in `.cache/quota/`. On HTTP 429, Parakh honours `Retry-After` and backs off exponentially. If retries run out, the run is marked `rate_limited` (not `failed`) and can be resumed. Completed scenarios are skipped on resume.
 - Groq limits are per organisation, so the agent's and the judge's calls share one pool. The estimate counts both.
 - A single choke point, `remote_call()`, refuses any payload tagged `real=True` (D10, EC-13).
+- M1 ships the estimate (`parakh budget`) and `remote_call()`, which guards edge-tts. The token bucket, daily counter and 429 backoff move to M3 (EC-10, EC-11), because Parakh makes no LLM or STT calls of its own until the judge arrives; in M1 only the agent calls Groq. The estimate counts one STT request per caller turn and one LLM request per agent reply, and real use is higher: the Hinglish scenario is estimated at 4 STT and 5 LLM requests, and each completed real run used 11 STT and 8 to 10 LLM requests, because the agent's Groq STT runs once per VAD segment and tool calls add LLM turns.
 
 ### 6.9 Report
 
@@ -233,6 +238,8 @@ Typer. Core commands:
 - `parakh hms serve` (M4)
 
 Exit codes: 0 means everything passed; 1 means a task failed; 2 means an infrastructure problem (timeout, rate limit, timing unreliable).
+
+M1 ships `version`, `tts build`, `run`, `report` and `budget <scenario|dir>`; `run` accepts only `--preset clean`. `degrade` and `--presets` come with M2, `hms serve` with M4. Until task success exists (M4), exit 1 means the agent hung up before the first caller turn (`agent_hung_up_early`); every other non-completed status, and `timing_unreliable`, is 2.
 
 ## 7. Repo layout
 
@@ -279,7 +286,7 @@ Targets: 85 % line coverage on `score/`, `degrade/` and `caller/`. Unit and inte
 | # | Milestone | Exit criteria |
 |---|---|---|
 | M0 | Foundations and Task 1 run | Repo hygiene files in place (`.gitignore`, `.gitattributes`, `.env.example`, `pyproject`, `uv.lock`, pre-commit with gitleaks, MIT `LICENSE`, README stub, `ci.yml` skeleton). Calibrate installed in WSL. One text simulation run on an OpenRouter `:free` model. Results added to the Calibrate analysis and the verdict finalised. Free Groq key created and stored in `.env`. |
-| M1 | MVP: one scenario, clean audio, Pipecat agent, latency + WER | `parakh run scenarios/hinglish/clinic-book-hinglish-01.yaml --preset clean` against `agents/clinic_agent` writes `report.json` and `report.html` with per-turn latency and strict and loose WER. Loose WER already handles Devanagari hypotheses, because Groq Whisper with language `hi` returns Devanagari. Unit and integration tests pass on Windows and Ubuntu. |
+| M1 | MVP: one scenario, clean audio, Pipecat agent, latency + WER | `parakh run scenarios/hinglish/clinic-book-hinglish-01.yaml --preset clean` against `agents/clinic_agent` writes `report.json` and `report.html` with per-turn latency and strict and loose WER. Loose WER already handles Devanagari hypotheses, because Groq Whisper with language `hi` returns Devanagari. Unit and integration tests pass on Windows and Ubuntu. **Met 2026-11-17:** run `6b5d9138` (Parakh `63add5c`) completed with exit 0 over 4 turns: latency p50 4808 ms and p95 6769 ms, strict WER 100.0 %, loose WER 16.7 % ([runbook](../../runbooks/run-m1.md)). |
 | M2 | Degradation presets and interruptions | All five presets. Barge-in turns and stop latency. Comparison page across presets. Degrader tests meet the tolerances above. |
 | M3 | Indic layer | Normaliser hardened against a golden set of at least 150 pairs. 10-20 Hinglish scenarios. LLM judge. Then Kannada-English and Tamil-English scenarios (edge-tts `kn-IN`, `ta-IN` voices). Small real-recording set (D10). Indic Parler-TTS benchmarked; adopted as an offline engine if fast enough. |
 | M4 | HMS adapter and GitHub Actions | Mock HMS service, `EndStateAdapter`, task success in reports, agent tools wired to the HMS. Threshold flags set the exit code (D12). `e2e.yml` green on a manual run. |
@@ -309,8 +316,8 @@ Grouped by area. The "M" column is the milestone that handles it.
 ### Free tiers and quotas
 | ID | Edge case | Handling | M |
 |---|---|---|---|
-| EC-10 | Groq Whisper limits (20 RPM, 2,000 RPD, 7,200 audio-seconds per hour) are shared by the agent and the judge at org level. | Budget estimate, token buckets, daily counter (6.8). | M1 |
-| EC-11 | HTTP 429 mid-run. | Retry-After plus backoff. Status `rate_limited`, resumable. | M1 |
+| EC-10 | Groq Whisper limits (20 RPM, 2,000 RPD, 7,200 audio-seconds per hour) are shared by the agent and the judge at org level. | Budget estimate, token buckets, daily counter (6.8). The estimate ships in M1. Token buckets and the daily counter move to M3, because Parakh makes no LLM or STT calls of its own in M1 (only the agent does) and the judge is its first. The M1 estimate undercounts real use (4 STT and 5 LLM requests estimated, 11 STT and 8 to 10 LLM observed per run), because Groq STT runs once per VAD segment and tool calls add LLM turns; the runbook gives the observed figures. | M1/M3 |
+| EC-11 | HTTP 429 mid-run. | Retry-After plus backoff. Status `rate_limited`, resumable. Moved to M3 with EC-10: in M1 a 429 can only hit the agent, and the runbook says to stop and record it. | M3 |
 | EC-12 | A free model is renamed, deprecated or re-tiered. | Model ids in config only. List models at startup. Ids recorded in every report. | M1 |
 | EC-13 | Gemini free tier trains on inputs. | Synthetic data only. `remote_call()` refuses payloads tagged `real`. | M1 |
 | EC-14 | OpenRouter free cap (about 50 requests per day). | Used only for the Task 1 text simulation. | M0 |
@@ -357,7 +364,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-45 | Relative dates ("kal", "parso"), "saade das". | Task success compares HMS values, not text. Frozen scenario clock. | M4 |
 | EC-46 | Empty reference or hypothesis. | Defined rules: empty hypothesis gives WER 1.0; an empty reference skips the turn. | M1 |
 | EC-47 | The agent exposes no transcript. | WER `null` with a reason. Never substituted with Whisper. | M1 |
-| EC-48 | Whisper hallucinates on silence or noise. | VAD filter on, trimmed input, known-hallucination flag. Whisper is used only for agent replies with no text. | M1 |
+| EC-48 | Whisper hallucinates on silence or noise. | VAD filter on, trimmed input, known-hallucination flag. Whisper is used only for agent replies with no text. M1 uses no Parakh-side Whisper: the clinic agent sends its reply text, and WER uses the agent's own transcript. The rest of this row applies when Parakh-side Whisper is added. | M1 |
 | EC-49 | A normaliser bug makes the metric lie. | Golden pairs, property tests, strict WER shown alongside. | M1/M3 |
 
 ### LLM judge
@@ -396,9 +403,11 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-75 | A third-party Action or pre-commit hook tag is moved to malicious code (supply chain). Hooks run on the laptop, where `.env` holds the real key. | Every workflow `uses:` and every pre-commit `rev:` pinned to a full commit SHA with the version as a comment; `tests/unit/test_supply_chain_pins.py` fails on any unpinned one. Dependabot (`.github/dependabot.yml`) proposes weekly Action pin updates; hook pins are bumped with `pre-commit autoupdate --freeze`, checking that the ruff hook matches `uv.lock`. | M0 |
 | EC-76 | The agent LLM hangs up before the caller speaks (seen in the Task 1 run: an end-call tool called on the first turn). | The test agent's system prompt states how the call opens and when it may end; the call driver reports a hang-up before the first caller turn as its own failure reason, not as a silent pass or a timeout. | M1 |
 | EC-77 | Hosted LLM latency swings within one run (Task 1 saw TTFB from 0.8 s to 58 s on an OpenRouter `:free` model). | The report records the agent's LLM model and, when the agent reports it, its own per-turn TTFB beside end-to-end latency, so provider delay is visible; preset comparisons run back to back in one session. | M1 |
-| EC-78 | The agent reports one utterance twice (seen in the M1 run on Pipecat 1.16: each transcription as `user-input` and as the deprecated `user-transcription`; each spoken bot-output segment as `new` and again as `completed` under one `segment_id`). Counting both doubled every transcript and scored loose WER at 120 %. | The call driver records the first message and logs the repeat as an `rtvi_repeat` event (`RtviRepeats`). | M1 |
+| EC-78 | The agent reports one utterance twice (seen in the M1 run on Pipecat 1.16: each transcription as `user-input` and as the deprecated `user-transcription`; each spoken bot-output segment as `new` and again as `completed` under one `segment_id`). Counting both doubled every transcript and scored loose WER at 120 %. | The call driver records each once (`RtviRepeats` in `src/parakh/transport/codec.py`): bot-output segments by `segment_id`, and a transcript twin when it has the other type with the same text, final flag and timestamp. Each repeat is logged as an `rtvi_repeat` event, so the drop can be audited in `events.jsonl`. | M1 |
 | EC-79 | Whisper writes a spoken number as digit groups ("9845 012 345" for a 10-digit phone number). | The normaliser joins adjacent digit tokens, and the HTML marks a run of number words as one number, so the marks agree with loose WER. | M1 |
 | EC-80 | A provider request inside the agent fails mid-call (seen in the M1 run: a Groq STT request timed out, so the agent never answered that turn). | The call ends as `turn_timeout` with a full report; the runbook says to check the agent log and run again. Never retried silently. | M1 |
+| EC-81 | A blocking file write or flush on the event loop delays outgoing frames on Windows (NTFS and filter drivers can stall one write for 30 ms or more), which shows up as pacer jitter. | The recorder queues event lines to a writer thread that appends and flushes them; `close()` waits for the thread and raises a deferred write error. | M1 |
+| EC-82 | An agent URL can carry credentials or tokens (userinfo, query string, fragment), which would leak into reports, logs and console output. | `redact_url()` keeps scheme, host, port and path and drops userinfo, query and fragment everywhere Parakh stores or prints the URL: `report.json`, `report.html`, CLI messages and error warnings. | M1 |
 
 ## 12. Decisions
 
@@ -419,6 +428,7 @@ My calls, for Yatin to check:
 - **D11** Headline WER is conversation-level loose WER on the agent's own transcript. Strict WER is shown next to it.
 - **D12** Audience for M0-M5 is Yatin's portfolio and own testing; Yatin left this to Claude's recommendation. "A GitHub Actions workflow" in step 4 means Parakh's own `ci.yml` and `e2e.yml`. M4 adds optional thresholds (`--max-p95-ms`, `--max-loose-wer`, `--require-task-success`) that set exit code 1, so Parakh's own e2e can gate on them. A reusable Action for other people's repos and a PyPI release go on the backlog.
 - **D13** "Comparison run" for M5 means the same scenario pack across all presets, on two agent setups (Groq STT vs local faster-whisper STT), plus a coverage table against Calibrate.
+- **D14** Parakh keeps its own call driver; `pipecat.evals` is complementary. `pipecat.evals` (new in Pipecat 1.16) has scripted and simulated scenarios, a cached TTS user, an LLM judge, a suite runner, 40 ms paced user audio and `within_ms` latency budgets, but the bot must run `EvalTransport` or `EvalFastAPIWebsocketTransport` with `EvalSerializer` (RTVI plus `eval-*` messages), and it has no telephone degradation, no script-tolerant WER and no latency distributions. Parakh's driver tests unmodified agents that serve Pipecat's protobuf serializer. Yatin delegated this to Claude (2026-11-16). Note: [`docs/research/2026-11-16-pipecat-evals-note.md`](../../research/2026-11-16-pipecat-evals-note.md).
 
 ## 13. Backlog (after M5)
 
@@ -430,7 +440,7 @@ My calls, for Yatin to check:
 
 ## 14. Left to the builder
 
-Exact Groq chat model id; threshold tuning (-45 dBFS, 800 ms, 2 s); HTML styling; extra CLI flags; the internal module split inside each package; the number-word table beyond the cases listed.
+Exact Groq chat model id (M1: `openai/gpt-oss-20b`, see 6.5); threshold tuning (-45 dBFS, 800 ms, 2 s); HTML styling; extra CLI flags; the internal module split inside each package; the number-word table beyond the cases listed.
 
 ## 15. Documentation conventions
 

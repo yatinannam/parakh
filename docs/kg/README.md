@@ -40,6 +40,7 @@ flowchart LR
   t_kg_render["KG renderer"]
   t_no_emoji["No-emoji guard"]
   test_agent["Clinic test agent"]
+  transport_codec["Transport + codec"]
   tts_cache["Caller TTS + cache"]
   x_100ms{{"100ms"}}
   x_calibrate{{"Calibrate"}}
@@ -50,6 +51,7 @@ flowchart LR
   x_openrouter{{"OpenRouter :free"}}
   x_parler{{"Indic Parler-TTS"}}
   x_pipecat{{"Pipecat"}}
+  x_pipecat_evals{{"pipecat.evals"}}
   x_whisper{{"faster-whisper small int8"}}
   x_wsl{{"WSL2 Ubuntu"}}
   budget -->|constrained_by| x_groq
@@ -57,7 +59,7 @@ flowchart LR
   call_driver -->|produces| score_latency
   call_driver -->|produces| score_wer
   call_driver -->|calls| test_agent
-  call_driver -->|depends_on| x_pipecat
+  call_driver -->|calls| transport_codec
   ci -->|calls| cli
   ci -->|calls| t_kg_render
   ci -->|calls| t_no_emoji
@@ -84,10 +86,13 @@ flowchart LR
   test_agent -->|depends_on| x_edge_tts
   test_agent -->|calls| x_groq
   test_agent -->|depends_on| x_pipecat
+  transport_codec -->|compatible_with| test_agent
+  transport_codec -->|depends_on| x_pipecat
   tts_cache -->|produces| degrader
   tts_cache -->|depends_on| x_edge_tts
   tts_cache -->|depends_on| x_parler
   x_calibrate -->|depends_on| x_wsl
+  x_pipecat_evals -->|depends_on| x_pipecat
 ```
 <!-- kg:end pipeline -->
 
@@ -111,6 +116,7 @@ flowchart TB
   d10[/"D10 Real recordings stay local"/]
   d11[/"D11 Headline = conversation loose WER"/]
   d12[/"D12 Audience: portfolio first"/]
+  d14[/"D14 Own call driver; pipecat.evals complementary"/]
   d2[/"D2 Calibrate text sim in WSL"/]
   d3[/"D3 HMS = hospital mgmt system"/]
   d4[/"D4 Scripted caller"/]
@@ -120,6 +126,7 @@ flowchart TB
   d9[/"D9 Pack ships text, not edge-tts audio"/]
   doc_calibrate[("Calibrate analysis")]
   doc_contributing[("CONTRIBUTING")]
+  doc_pipecat_evals[("pipecat.evals note")]
   doc_spec[("Design spec")]
   judge["LLM judge"]
   mock_hms["Mock HMS"]
@@ -141,9 +148,11 @@ flowchart TB
   t_check_keys["Key check"]
   t_kg_render["KG renderer"]
   test_agent["Clinic test agent"]
+  transport_codec["Transport + codec"]
   tts_cache["Caller TTS + cache"]
   x_calibrate{{"Calibrate"}}
   x_parler{{"Indic Parler-TTS"}}
+  x_pipecat_evals{{"pipecat.evals"}}
   x_whisper{{"faster-whisper small int8"}}
   x_wsl{{"WSL2 Ubuntu"}}
   budget -->|constrained_by| c_free
@@ -153,12 +162,15 @@ flowchart TB
   c_mit -->|documented_in| doc_contributing
   call_driver -->|constrained_by| c_windows
   call_driver -->|decided_by| d1
+  call_driver -->|decided_by| d14
   call_driver -->|mitigates| r_timing
   ci -->|constrained_by| c_secrets
   ci -->|decided_by| d12
   ci -->|mitigates| r_supply_chain
   d1 -->|documented_in| doc_spec
   d10 -->|mitigates| r_privacy
+  d14 -->|documented_in| doc_pipecat_evals
+  d14 -->|documented_in| doc_spec
   d9 -->|mitigates| r_license
   judge -->|constrained_by| c_synthetic
   judge -->|decided_by| d6
@@ -178,10 +190,13 @@ flowchart TB
   t_kg_render -->|decided_by| d8
   test_agent -->|decided_by| d5
   test_agent -->|mitigates| r_llm_behaviour
+  transport_codec -->|mitigates| r_alignment
+  transport_codec -->|mitigates| r_privacy
   tts_cache -->|decided_by| d9
   x_calibrate -->|constrained_by| c_mit
   x_calibrate -->|decided_by| d2
   x_parler -->|constrained_by| c_cpu
+  x_pipecat_evals -->|decided_by| d14
   x_whisper -->|constrained_by| c_cpu
   x_wsl -->|mitigates| r_windows_install
 ```
@@ -212,11 +227,13 @@ flowchart LR
     budget["Budget + quota guard"]
     call_driver["Call driver"]
     cli["CLI"]
+    normalizer["Script-tolerant normaliser"]
     report["Report"]
     scenario["Scenario loader"]
     score_latency["Latency scorer"]
     score_wer["WER scorer"]
     test_agent["Clinic test agent"]
+    transport_codec["Transport + codec"]
     tts_cache["Caller TTS + cache"]
   end
   subgraph g_m2[" "]
@@ -226,7 +243,6 @@ flowchart LR
   subgraph g_m3[" "]
     m3(("M3 Indic layer + judge"))
     judge["LLM judge"]
-    normalizer["Script-tolerant normaliser"]
   end
   subgraph g_m4[" "]
     m4(("M4 HMS adapter + CI e2e"))

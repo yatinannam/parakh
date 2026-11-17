@@ -24,7 +24,7 @@ The same applies to other copyleft sources: edge-tts (LGPL-3.0) is used unmodifi
 
 ## Workflow
 
-1. `uv sync`, then `uv run pre-commit install` once per clone.
+1. `uv sync --all-groups` (the tests import the test agent's `agent` group), then `uv run pre-commit install` once per clone.
 2. Write the failing test first, watch it fail, then write the code that makes it pass.
 3. Before pushing, run what pre-commit does not: `uv run pyright` and `uv run pytest -q`. CI runs every check on Ubuntu and Windows.
 4. Update the docs with the change: the spec when a fact or decision changes, the edge-case register for new edge cases, runbooks for new manual steps, and `docs/README.md` for new documents.
