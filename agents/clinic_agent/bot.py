@@ -94,7 +94,10 @@ def build_task(
     )
     task = PipelineWorker(
         pipeline,
-        params=PipelineParams(audio_in_sample_rate=rate, audio_out_sample_rate=rate),
+        # Metrics on: RTVI metrics then carry STT, LLM and TTS TTFB for the report (EC-77).
+        params=PipelineParams(
+            audio_in_sample_rate=rate, audio_out_sample_rate=rate, enable_metrics=True
+        ),
         observers=[RTVIObserver(rtvi)],
     )
 

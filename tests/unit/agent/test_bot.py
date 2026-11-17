@@ -131,3 +131,10 @@ async def test_each_build_has_independent_state(monkeypatch: pytest.MonkeyPatch)
     args = {"doctor": "dr-rao", "date": "2026-11-20"}
     assert "10:30" not in (await _call_tool(llm1, "available_slots", args))["slots"]
     assert "10:30" in (await _call_tool(llm2, "available_slots", args))["slots"]
+
+
+def test_metrics_enabled_so_the_report_shows_agent_ttfb() -> None:
+    # EC-77: the report puts the agent's own TTFB beside end-to-end latency. Pipecat sends
+    # TTFB in RTVI metrics only with enable_metrics; the first live run had none.
+    task, _transport = bot.build_task(load_config(), "test-key")
+    assert task.params.enable_metrics is True
