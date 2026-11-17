@@ -52,6 +52,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Any warning fails the suite, in CI and locally; narrow per-test filters still apply.
+filterwarnings = ["error"]
 markers = [
     "integration: tests that need network access or real services",
 ]

@@ -47,3 +47,13 @@ def test_ci_jobs_have_timeouts():
     assert {name: isinstance(job.get("timeout-minutes"), int) for name, job in jobs.items()} == {
         name: True for name in jobs
     }
+
+
+def test_pytest_turns_warnings_into_errors():
+    # CI runs plain `uv run pytest -q`; the config, not a -W flag, makes a new
+    # warning (a deprecation in a pinned dependency, an unclosed resource) fail it.
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+    options = config["tool"]["pytest"]["ini_options"]
+    assert options.get("filterwarnings", [])[:1] == ["error"]
