@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from parakh.caller import driver
-from parakh.caller.recorder import Recorder
+from parakh.caller.recorder import Recorder, read_events
 from parakh.caller.turns import TurnState
 from parakh.scenario import CallerVoice, Scenario, Turn
 from parakh.transport.codec import BOT_STOPPED, AgentAudio, ProtocolError, RtviMessage
@@ -75,3 +75,33 @@ def test_bot_stopped_kept_until_the_agent_speaking_step(tmp_path: Path) -> None:
         assert (action.kind, action.turn_index) == ("start_turn", 0)
     finally:
         rec.close()
+
+
+def test_pipecat_twin_messages_are_recorded_once(tmp_path: Path) -> None:
+    # Pipecat 1.16 sends each transcription as user-input and user-transcription, and
+    # each spoken bot segment as a "new" and a "completed" bot-output. Recording both
+    # doubled every transcript and agent reply in the first live run (WER above 100 %).
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    run_dir = tmp_path / "run"
+    rec = Recorder(run_dir, T0)
+    segment = {"text": "Hello, Parakh Clinic.", "segment_id": 41, "will_be_spoken": True}
+    heard = {"text": "हाँ", "final": True, "timestamp": "2026-11-17T06:10:00", "user_id": ""}
+    messages = [
+        RtviMessage("bot-output", {**segment, "spoken": False, "spoken_status": "new"}, {}),
+        RtviMessage("bot-output", {**segment, "spoken": True, "spoken_status": "completed"}, {}),
+        RtviMessage("user-input", {**heard, "input_type": "transcription"}, {}),
+        RtviMessage("user-transcription", heard, {}),
+    ]
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        for k, message in enumerate(messages):
+            call._on_event(message, T0 + k * MS)
+    finally:
+        rec.close()
+    events = read_events(run_dir)
+    assert [e["text"] for e in events if e["kind"] == "bot_output"] == ["Hello, Parakh Clinic."]
+    assert [e["text"] for e in events if e["kind"] == "caller_transcript"] == ["हाँ"]
+    assert [e["type"] for e in events if e["kind"] == "rtvi_repeat"] == [
+        "bot-output",
+        "user-transcription",
+    ]

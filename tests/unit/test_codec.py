@@ -10,6 +10,7 @@ from parakh.transport.codec import (
     Frame,
     ProtocolError,
     RtviMessage,
+    RtviRepeats,
     agent_info,
     caller_transcript,
     decode_frame,
@@ -114,3 +115,65 @@ def test_malformed_rtvi_fields_are_tolerated() -> None:
         is None
     )
     assert _rtvi({"type": 5, "data": []}).type == ""
+
+
+def _transcript(msg_type: str, text: str, timestamp: str, final: bool = True) -> RtviMessage:
+    data: dict = {"text": text, "final": final, "timestamp": timestamp, "user_id": ""}
+    if msg_type == "user-input":
+        data["input_type"] = "transcription"
+    return _rtvi({"type": msg_type, "data": data})
+
+
+def test_user_transcription_twin_of_user_input_is_a_repeat() -> None:
+    # Pipecat 1.13 and later send each transcription as user-input, then again as
+    # the deprecated user-transcription with the same text, final flag and timestamp.
+    repeats = RtviRepeats()
+    assert not repeats.is_repeat(_transcript("user-input", "हाँ", "06:10:00"))
+    assert repeats.is_repeat(_transcript("user-transcription", "हाँ", "06:10:00"))
+    # The same words said again later are new speech, not a repeat.
+    assert not repeats.is_repeat(_transcript("user-input", "हाँ", "06:10:05"))
+    assert repeats.is_repeat(_transcript("user-transcription", "हाँ", "06:10:05"))
+
+
+def test_transcript_twin_order_does_not_matter() -> None:
+    repeats = RtviRepeats()
+    assert not repeats.is_repeat(_transcript("user-transcription", "kal", "t1"))
+    assert repeats.is_repeat(_transcript("user-input", "kal", "t1"))
+
+
+def test_transcripts_of_one_message_type_are_never_repeats() -> None:
+    # An agent that sends only one of the two types: every transcript counts, even
+    # one that matches the last, and an interim one followed by its final one.
+    repeats = RtviRepeats()
+    assert not repeats.is_repeat(_transcript("user-transcription", "haan", "t1"))
+    assert not repeats.is_repeat(_transcript("user-transcription", "haan", "t1"))
+    assert not repeats.is_repeat(_transcript("user-input", "kal", "t2", final=False))
+    assert not repeats.is_repeat(_transcript("user-input", "kal", "t2"))
+    assert not repeats.is_repeat(_transcript("user-transcription", "kal", "t2", final=False))
+
+
+def _bot_output(
+    segment_id: object, status: str, text: str = "Hello, Parakh Clinic."
+) -> RtviMessage:
+    data = {"text": text, "segment_id": segment_id, "spoken_status": status}
+    return _rtvi({"type": "bot-output", "data": data})
+
+
+def test_bot_output_segment_is_reported_once() -> None:
+    # Pipecat reports a spoken segment when it starts ("new") and again once spoken
+    # ("completed", with "in-progress" between them for TTS with word timestamps).
+    repeats = RtviRepeats()
+    assert not repeats.is_repeat(_bot_output(7, "new"))
+    assert repeats.is_repeat(_bot_output(7, "in-progress"))
+    assert repeats.is_repeat(_bot_output(7, "completed"))
+    assert not repeats.is_repeat(_bot_output(8, "new", "How can I help you today?"))
+
+
+def test_bot_output_without_a_usable_segment_id_is_never_a_repeat() -> None:
+    repeats = RtviRepeats()
+    plain = _rtvi({"type": "bot-output", "data": {"text": "Bye!"}})
+    assert not repeats.is_repeat(plain)
+    assert not repeats.is_repeat(plain)
+    assert not repeats.is_repeat(_bot_output(True, "new"))
+    assert not repeats.is_repeat(_bot_output(True, "completed"))
+    assert not repeats.is_repeat(_rtvi({"type": "bot-started-speaking"}))

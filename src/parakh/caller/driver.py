@@ -54,6 +54,7 @@ from parakh.transport.codec import (
     AgentTranscription,
     ProtocolError,
     RtviMessage,
+    RtviRepeats,
     agent_info,
     caller_transcript,
 )
@@ -153,6 +154,7 @@ class _Call:
         self._next = 0
         self._speech_end_ns: int | None = None  # of the caller turn in progress
         self._reply_heard = False  # loud agent audio after that speech end
+        self._repeats = RtviRepeats()
 
     def _ms(self, t_ns: int) -> float:
         return (t_ns - self._t0) / _NS_PER_MS
@@ -319,6 +321,9 @@ class _Call:
         self._rec.agent_frame(now, pcm, audio.sample_rate, self._ms(start))
 
     def _on_rtvi(self, msg: RtviMessage, now: int) -> None:
+        if self._repeats.is_repeat(msg):
+            self._event("rtvi_repeat", now, type=msg.type)
+            return
         transcript = caller_transcript(msg)
         info = agent_info(msg)
         if transcript is not None:

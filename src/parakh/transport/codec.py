@@ -114,6 +114,37 @@ def caller_transcript(msg: RtviMessage) -> tuple[str, bool] | None:
     return text, msg.data.get("final") is True
 
 
+class RtviRepeats:
+    """Spots RTVI messages that repeat one already received, so each is recorded once.
+
+    Pipecat 1.13 and later send every transcription twice: as user-input and as its
+    deprecated twin user-transcription, with the same text, final flag and timestamp.
+    They report every spoken bot-output segment at least twice under one segment_id:
+    when it starts ("new") and once it is spoken ("completed", with "in-progress"
+    between them for TTS services with word timestamps). The first message counts.
+    """
+
+    def __init__(self) -> None:
+        self._segments: set[int | str] = set()
+        self._last_transcript: tuple[str, tuple[object, ...]] | None = None
+
+    def is_repeat(self, msg: RtviMessage) -> bool:
+        if msg.type == BOT_OUTPUT:
+            segment = msg.data.get("segment_id")
+            if isinstance(segment, bool) or not isinstance(segment, int | str):
+                return False
+            if segment in self._segments:
+                return True
+            self._segments.add(segment)
+            return False
+        if caller_transcript(msg) is None:
+            return False
+        data = msg.data
+        key = (data.get("text"), data.get("final") is True, data.get("timestamp"))
+        last, self._last_transcript = self._last_transcript, (msg.type, key)
+        return last is not None and last[0] != msg.type and last[1] == key
+
+
 def agent_info(msg: RtviMessage) -> dict[str, Any] | None:
     if msg.type != "server-message":
         return None
