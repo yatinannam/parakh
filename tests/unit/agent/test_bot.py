@@ -3,8 +3,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pipecat.frames.frames import EndFrame, Frame, LLMRunFrame
+from pipecat.frames.frames import EndFrame, Frame, InterruptionWorkerFrame, LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregator,
     LLMUserAggregator,
@@ -88,11 +89,64 @@ async def test_connect_queues_agent_info_then_greeting(monkeypatch: pytest.Monke
     assert isinstance(seen[1], LLMRunFrame)
 
 
-async def test_disconnect_ends_the_task(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_disconnect_interrupts_but_keeps_the_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Ending the pipeline on disconnect closed the server for a moment: a caller that
+    # connected then was accepted and cut off, or refused (finding 3 of the M1 final
+    # review). The pipeline stays up; a reply still in flight is cut off instead.
     task, transport = bot.build_task(load_config(), "test-key")
     seen = _spy_frames(task, monkeypatch)
     await _handler(transport, "on_client_disconnected")(transport, object())
-    assert any(isinstance(f, EndFrame) for f in seen)
+    assert [type(f) for f in seen] == [InterruptionWorkerFrame]
+    assert not any(isinstance(f, EndFrame) for f in seen)
+
+
+class _SpyWorker(PipelineWorker):
+    kwargs: dict[str, Any] = {}
+
+    def __init__(self, pipeline: Any, **kwargs: Any) -> None:
+        super().__init__(pipeline, **kwargs)
+        _SpyWorker.kwargs = kwargs
+
+
+def test_pipeline_is_never_cancelled_for_being_idle(monkeypatch: pytest.MonkeyPatch) -> None:
+    # One pipeline serves every call, so an idle spell between calls must not end it.
+    monkeypatch.setattr(bot, "PipelineWorker", _SpyWorker)
+    bot.build_task(load_config(), "test-key")
+    assert _SpyWorker.kwargs["idle_timeout_secs"] is None
+
+
+async def test_connect_starts_each_call_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The pipeline outlives a call, so everything a call leaves behind is reset when
+    # the next caller connects: conversation, bookings and both aggregators.
+    monkeypatch.setattr(bot, "Pipeline", _SpyPipeline)
+    task, transport = bot.build_task(load_config(), "test-key")
+    assert _SpyPipeline.last is not None
+    listed = _SpyPipeline.last.listed
+    llm = next(p for p in listed if isinstance(p, GroqLLMService))
+    user = next(p for p in listed if isinstance(p, LLMUserAggregator))
+    assistant = next(p for p in listed if isinstance(p, LLMAssistantAggregator))
+    context = user._context
+    resets: list[str] = []
+    for name, aggregator in (("user", user), ("assistant", assistant)):
+
+        async def reset(name: str = name) -> None:
+            resets.append(name)
+
+        monkeypatch.setattr(aggregator, "reset", reset)
+    seen = _spy_frames(task, monkeypatch)
+
+    slot = {"doctor": "dr-rao", "date": "2026-11-20", "time": "10:30", "phone": "9845012345"}
+    assert (await _call_tool(llm, "book_appointment", slot))["ok"] is True
+    context.add_message({"role": "user", "content": "the previous caller"})
+    await _handler(transport, "on_client_connected")(transport, object())
+
+    assert context.messages == []
+    args = {"doctor": "dr-rao", "date": "2026-11-20"}
+    assert "10:30" in (await _call_tool(llm, "available_slots", args))["slots"]
+    assert sorted(resets) == ["assistant", "user"]
+    assert [type(f) for f in seen] == [RTVIServerMessageFrame, LLMRunFrame]
 
 
 async def _call_tool(llm: GroqLLMService, name: str, arguments: dict[str, str]) -> Any:

@@ -42,7 +42,7 @@ Starting websocket server on 127.0.0.1:8765
 PipelineWorker#0: StartFrame#0 reached the end of the pipeline, pipeline is now ready.
 ```
 
-The first start takes about 10 s. The agent serves one call per pipeline and builds a fresh one after each call, so you can run Parakh again without restarting it.
+The first start takes about 10 s. One pipeline serves call after call and resets the conversation and the bookings when a caller connects, so you can run Parakh again, straight away, without restarting it.
 
 ## 3. Run the scenario (terminal 2)
 
@@ -109,8 +109,7 @@ Errors before the call starts (an invalid scenario, ffmpeg missing, caller audio
 | Symptom | Cause | Action |
 |---|---|---|
 | Agent log: `ERROR ... TTSSettings: the following fields are NOT_GIVEN: model, voice, language` at each pipeline start | Pipecat 1.16 checks that a TTS service fills its settings; the edge-tts service does not | Harmless; the call works |
-| Agent log: `RTVIProcessor and RTVIObserver found, skipping default ones` and `EndFrame ... is not serializable` | Pipecat 1.16 notices | Harmless |
-| A new pipeline starts every 5 minutes with no call (`CancelFrame ... reason: idle timeout`) | Pipecat's idle timeout ends an unused pipeline; the agent builds a new one | Harmless |
+| Agent log: `RTVIProcessor and RTVIObserver found, skipping default ones` | A Pipecat 1.16 notice | Harmless |
 | Status `turn_timeout`; agent log: `GroqSTTService#0 error: Unknown error occurred: Request timed out.` | A Groq STT request timed out, so the agent never heard that turn | Provider hiccup. Run again after a minute |
 | Agent log: `EdgeTTSService#1 exception ... No audio was received` | edge-tts returned no audio for one segment, here a Devanagari-only aside "(किस दिन?)" spoken by the English voice | The agent skips that segment and the call goes on; the text still shows under "Agent replied" |
 | Status `agent_unreachable` | The agent is not running or uses another port | Start the agent; wait for the ready line |

@@ -44,6 +44,10 @@ class BookingStore:
     def __init__(self) -> None:
         self._booked: dict[tuple[str, str, str], dict[str, str]] = {}
 
+    def reset(self) -> None:
+        """Forget every booking, for the next call."""
+        self._booked.clear()
+
     def available_slots(self, doctor: str, date: str) -> list[str]:
         hours = DOCTOR_HOURS.get(doctor)
         if hours is None:

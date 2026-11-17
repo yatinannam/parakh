@@ -50,7 +50,12 @@ def main() -> None:
 
 
 async def _serve(config: AgentConfig, key: str, host: str, port: int) -> None:
-    """Serve one call per pipeline task, building fresh state for each, until interrupted."""
+    """Serve calls until interrupted.
+
+    One pipeline serves call after call and resets its per-call state when a caller
+    connects (bot.build_task). A new one is built only if the pipeline ends anyway,
+    for example after a fatal error.
+    """
     while True:
         task, _transport = build_task(config, key, host=host, port=port)
         runner = WorkerRunner(handle_sigint=False)
