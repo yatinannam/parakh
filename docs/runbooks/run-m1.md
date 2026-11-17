@@ -79,7 +79,7 @@ Get-NetTCPConnection -LocalPort 8765 -State Listen
 
 ## What the report shows
 
-- **Latency** per turn: from the end of the caller's speech to the first agent audio above -45 dBFS, on the caller's playback clock. p50 and p95 are over the turns that have one.
+- **Latency** per turn: from the end of the caller's speech to the arrival of the first agent audio frame above -45 dBFS. It uses the frame's arrival time, not the playback clock. p50 and p95 are over the turns that have one.
 - **Strict WER** compares words as written. The agent's Whisper writes Hinglish in Devanagari and the references are Roman, so strict WER is about 100 % by construction. It is there to show the script gap.
 - **Loose WER** goes through the script-tolerant normaliser (Devanagari to Roman, numbers to digits, spelling variants). It is the headline (D11).
 - **Heard** marks each transcript word that loose WER counts as a miss. A run of number words, such as a phone number heard as "9845 012 345", is compared and marked as one number.
@@ -111,7 +111,7 @@ Errors before the call starts (an invalid scenario, ffmpeg missing, caller audio
 | Agent log: `ERROR ... TTSSettings: the following fields are NOT_GIVEN: model, voice, language` at each pipeline start | Pipecat 1.16 checks that a TTS service fills its settings; the edge-tts service does not | Harmless; the call works |
 | Agent log: `RTVIProcessor and RTVIObserver found, skipping default ones` | A Pipecat 1.16 notice | Harmless |
 | Status `turn_timeout`; agent log: `GroqSTTService#0 error: Unknown error occurred: Request timed out.` | A Groq STT request timed out, so the agent never heard that turn | Provider hiccup. Run again after a minute |
-| Agent log: `EdgeTTSService#1 exception ... No audio was received` | edge-tts returned no audio for one segment, here a Devanagari-only aside "(किस दिन?)" spoken by the English voice | The agent skips that segment and the call goes on; the text still shows under "Agent replied" |
+| Report warning `agent error: ... No audio was received ...` or `... completed with no audio`; agent log: `EdgeTTSService#0 exception ... No audio was received` | edge-tts returned no audio for Devanagari text spoken by the English voice: an aside such as "(किस दिन?)", or in run `106c8e4e` a whole reply | An aside is skipped and the call goes on; its text still shows under "Agent replied". If the whole reply was Devanagari, nothing is spoken and the call ends `turn_timeout`; run again |
 | Status `agent_unreachable` | The agent is not running or uses another port | Start the agent; wait for the ready line |
 | HTTP 429 from Groq in the agent log | A free-tier rate limit | Stop. Copy the exact line into the run log below. Wait before trying again |
 | Any request for payment or a card | Not the free tier | Stop. Do not enter one. Record it in [`api-keys.md`](api-keys.md) (EC-17) |
@@ -156,3 +156,7 @@ Agent models for every run: STT `whisper-large-v3-turbo` (language `hi`), LLM `o
 | 2026-11-17 | `3ace8164` | `adba9eb` plus the uncommitted `9f2e95e` fix | same | completed | 4308 / 5406 ms | 100.0 % | 16.7 % | First correct report. HTML marked the split phone number as misses at loose WER 0.0 %; fixed in `7892417`. No agent TTFB; fixed in `63add5c`. 11 STT, 8 LLM requests |
 | 2026-11-17 | `494218f0` | `63add5c` | same | turn_timeout | 2585 / 2585 ms (1 turn) | 100.0 % | 73.3 % | Groq STT `Request timed out.` on turn 2; the agent never replied. Not a 429. 4 STT (1 timed out), 4 LLM requests |
 | 2026-11-17 | `6b5d9138` | `63add5c` | same | completed | 4808 / 6769 ms | 100.0 % | 16.7 % | Exit 0. Agent TTFB shown. Booked 11:00, not 10:30, with the wrong phone. 11 STT, 9 LLM requests |
+| 2026-11-17 | `106c8e4e` | `bc511b0` | same | turn_timeout | n/a (0 turns) | 100.0 % | 73.3 % | First of two back-to-back runs on one agent process, to check the agent's pipeline-per-call restart. The LLM answered the first caller turn in Devanagari only; the English edge-tts voice returned no audio, so nothing was spoken. The agent's two RTVI `error` messages were logged only as `rtvi_unknown`; they are warnings since `b3d4ae0`. 2 STT, 3 LLM requests |
+| 2026-11-17 | `6b86baa1` | `bc511b0` | same | completed | 3086 / 5905 ms | 100.0 % | 16.7 % | Second back-to-back run, connected 2.7 s after the first hung up. It passed only because the agent's new pipeline was listening 0.33 s after the hang-up; an offline check that reconnected at once was accepted and cut off, or refused. Fixed in `ac615c3`. 10 STT, 9 LLM requests |
+| 2026-11-17 | `e6d15d50` | `839fe79` plus the uncommitted `ac615c3` agent fix | same | completed | 3722 / 6076 ms | 100.0 % | 16.7 % | First of two back-to-back runs on one long-lived agent pipeline. 10 STT, 10 LLM requests |
+| 2026-11-17 | `11ae9abd` | same | same | completed | 4011 / 5784 ms | 100.0 % | 16.7 % | Second back-to-back run, 3 s after the first: the same `PipelineWorker#0` served it, its first LLM request had an empty context, and its booking was `bk-001` again (fresh store). 10 STT, 10 LLM requests |
