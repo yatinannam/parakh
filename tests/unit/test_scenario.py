@@ -128,3 +128,12 @@ def test_barge_in_offset_not_negative(tmp_path, after_ms, ok):
     else:
         with pytest.raises(ScenarioError, match="after_agent_ms"):
             load_scenario(path)
+
+
+def test_barge_in_on_first_turn_needs_agent_first(tmp_path):
+    text = _example_text().replace("agent_speaks_first: true", "agent_speaks_first: false")
+    first = '  - say: "Hello, mujhe Dr. Rao ke saath follow-up appointment chahiye."\n'
+    assert first in text
+    text = text.replace(first, first + "    barge_in: {after_agent_ms: 100}\n")
+    with pytest.raises(ScenarioError, match="barge_in on the first turn needs agent_speaks_first"):
+        load_scenario(_write(tmp_path, text))

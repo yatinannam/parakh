@@ -64,3 +64,27 @@ def test_flush_drops_queued_audio() -> None:
     assert not clock.speaking(201 * MS)
     assert clock.flush(300 * MS) == 0
     assert clock.loud_end_ns == 200 * MS
+
+
+def test_onset_kept_across_short_gap() -> None:
+    clock = PlaybackClock()
+    assert clock.onset_ns is None
+    clock.on_audio(0, 8000, 16_000, loud=True)  # loud 0-500 ms
+    assert clock.onset_ns == 0
+    clock.on_audio(600 * MS, 320, 16_000, loud=True)
+    assert clock.onset_ns == 0
+
+
+def test_onset_resets_after_200ms_gap() -> None:
+    clock = PlaybackClock()
+    clock.on_audio(0, 8000, 16_000, loud=True)
+    clock.on_audio(800 * MS, 320, 16_000, loud=True)
+    assert clock.onset_ns == 800 * MS
+    clock.flush(810 * MS)
+    assert clock.onset_ns == 800 * MS  # a flush does not change it
+
+
+def test_silent_frame_does_not_set_onset() -> None:
+    clock = PlaybackClock()
+    clock.on_audio(0, 320, 16_000, loud=False)
+    assert clock.onset_ns is None

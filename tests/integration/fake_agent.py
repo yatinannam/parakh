@@ -49,6 +49,14 @@ class FakeBehaviour:
     telephony agents do, from connect to close. received records (sample_rate, n_samples)
     of every caller audio frame. vad_dbfs is the level a caller frame must exceed to count
     as speech, so a test can make the fake ignore a noise bed.
+
+    yield_after_ms: while the reply is speaking (its nominal length, reply_ms from its
+    start), stop that long after the first loud caller frame; None never yields. A
+    paced reply stops sending frames; a burst reply is already sent, so only the
+    interruption does anything. send_interruption sends a protobuf interruption
+    frame on yielding. Either way the fake sends bot-stopped-speaking and still
+    replies to the caller's utterance. user_started sends RTVI user-started-speaking
+    at each caller onset.
     """
 
     greet_ms: int | None = 300
@@ -67,6 +75,9 @@ class FakeBehaviour:
     stream_silence: bool = False
     vad_dbfs: float = SPEECH_DBFS
     received: list[tuple[int, int]] = field(default_factory=list)
+    yield_after_ms: int | None = None
+    send_interruption: bool = False
+    user_started: bool = False
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -125,6 +136,8 @@ class _Session:
         self._speaking = False
         self._utterances = 0
         self._replies = 0
+        self._speech_until_ns = 0  # nominal end of the reply being spoken
+        self._yield_at_ns: int | None = None  # set once the caller has talked over it
 
     def _spawn(self, coro: Coroutine[Any, Any, None]) -> None:
         self._tasks.add(asyncio.create_task(coro))
@@ -161,12 +174,33 @@ class _Session:
         self._b.received.append((frame.audio.sample_rate, len(frame.audio.audio) // 2))
         if dbfs(np.frombuffer(frame.audio.audio, dtype="<i2")) <= self._b.vad_dbfs:
             return
-        self._last_loud_ns = time.perf_counter_ns()
+        now = time.perf_counter_ns()
+        onset = not self._waiting
+        self._last_loud_ns = now
+        if onset and self._b.user_started:
+            self._spawn(self._send(_rtvi("user-started-speaking")))
+        if (
+            self._b.yield_after_ms is not None
+            and self._yield_at_ns is None
+            and now < self._speech_until_ns
+        ):
+            self._yield_at_ns = now + self._b.yield_after_ms * _NS_PER_MS
+            self._spawn(self._yield(self._yield_at_ns))
         if self._waiting:
             return  # debounced: the waiting reply re-reads _last_loud_ns
         self._waiting = True
         self._spawn(self._reply_after_quiet(self._utterances))
         self._utterances += 1
+
+    async def _send(self, message: bytes) -> None:
+        await self._ws.send(message)
+
+    async def _yield(self, at_ns: int) -> None:
+        await _sleep_until(at_ns)
+        if self._b.send_interruption:
+            frame = _Frame()
+            frame.interruption.SetInParent()
+            await self._ws.send(frame.SerializeToString())
 
     async def _greet(self, greet_ms: int) -> None:
         await _sleep_until(self._start_ns + greet_ms * _NS_PER_MS)
@@ -205,9 +239,13 @@ class _Session:
         self._speaking = True
         await self._ws.send(_rtvi("bot-started-speaking"))
         start_ns = time.perf_counter_ns()
+        self._speech_until_ns = start_ns + self._b.reply_ms * _NS_PER_MS
+        self._yield_at_ns = None
         for k, message in enumerate(self._reply):
             if not self._b.burst:
                 await _sleep_until(start_ns + k * _FRAME_NS)
+            if self._yield_at_ns is not None and time.perf_counter_ns() >= self._yield_at_ns:
+                break
             await self._ws.send(message)
             # The fake shares the driver's event loop; yield after each frame so the
             # driver reads it on arrival, as it would from an agent in its own process.

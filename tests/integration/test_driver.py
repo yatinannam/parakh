@@ -16,7 +16,7 @@ from parakh.caller import driver
 from parakh.caller.driver import CallResult, run_call
 from parakh.caller.line import CallerLine, build_line
 from parakh.caller.recorder import read_events
-from parakh.scenario import CallerVoice, Limits, Scenario, Turn
+from parakh.scenario import BargeIn, CallerVoice, Limits, Scenario, Turn
 from parakh.score.latency import response_latencies
 from parakh.tts.cache import CallerClip, TTSCache
 from tests.fakes import FakeEngine
@@ -55,8 +55,13 @@ async def _line(
 
 
 def _scenario(
-    n_turns: int, agent_speaks_first: bool, call_timeout_s: float, max_turns: int = 12
+    n_turns: int,
+    agent_speaks_first: bool,
+    call_timeout_s: float,
+    max_turns: int = 12,
+    barge_in: dict[int, int] | None = None,
 ) -> Scenario:
+    barge_in = barge_in or {}
     return Scenario(
         schema_version=1,
         id="fake-call",
@@ -66,7 +71,13 @@ def _scenario(
         clock=datetime(2026, 11, 16, 10, 0, tzinfo=IST),
         agent_speaks_first=agent_speaks_first,
         caller=CallerVoice(voice="hi-IN-SwaraNeural"),
-        turns=[Turn(say=f"turn {i}") for i in range(n_turns)],
+        turns=[
+            Turn(
+                say=f"turn {i}",
+                barge_in=BargeIn(after_agent_ms=barge_in[i]) if i in barge_in else None,
+            )
+            for i in range(n_turns)
+        ],
         limits=Limits(response_timeout_s=1.5, call_timeout_s=call_timeout_s, max_turns=max_turns),
     )
 
@@ -81,10 +92,11 @@ async def _call(
     max_turns: int = 12,
     agent_rate: int = 16000,
     preset: str = "clean",
+    barge_in: dict[int, int] | None = None,
 ) -> tuple[CallResult, list[dict[str, Any]]]:
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", turns)
-    scenario = _scenario(turns, agent_speaks_first, call_timeout_s, max_turns)
+    scenario = _scenario(turns, agent_speaks_first, call_timeout_s, max_turns, barge_in)
     line = await _line(base, clips, scenario, preset, agent_rate)
     async with fake_agent(behaviour) as url:
         result = await run_call(url, scenario, line, base / "run")
@@ -403,3 +415,60 @@ async def test_lossy_preset_logs_lost_frames(tmp_path: Path) -> None:
     for e in frames:
         flags = line.bed_lost if e["turn"] is None else line.turns[e["turn"]].lost
         assert e["lost"] is flags[e["frame"]]
+
+
+async def _barge_call(tmp_path: Path, **behaviour: Any) -> tuple[CallResult, list[dict[str, Any]]]:
+    return await _call(
+        tmp_path, FakeBehaviour(reply_ms=3000, **behaviour), turns=2, barge_in={1: 1200}
+    )
+
+
+async def test_barge_in_agent_yields_with_interruption(tmp_path: Path) -> None:
+    result, events = await _barge_call(
+        tmp_path, burst=False, yield_after_ms=300, send_interruption=True
+    )
+    assert result.status == "completed"
+    (barge,) = _kinds(events, "barge_in")
+    assert barge["turn"] == 1
+    assert barge["after_agent_ms"] == 1200
+    # The machine fires on the first 20 ms tick at or after onset + 1200, so the
+    # send can trail it by up to one tick on top of the timing tolerance.
+    assert -TOL_MS <= barge["t_ms"] - barge["agent_onset_ms"] - 1200 <= TOL_MS + 20
+    assert [e for e in _kinds(events, "agent_interruption") if e["t_ms"] > barge["t_ms"]]
+    assert not _kinds(events, "barge_in_missed")
+    _assert_ends_with_call_end(events, "completed")
+
+
+def _loud_between(path: Path, start_ms: float, end_ms: float) -> bool:
+    pcm, rate = read_wav(path)
+    seg = pcm[round(start_ms * rate / 1000) : round(end_ms * rate / 1000)]
+    return dbfs(seg) > SPEECH_DBFS
+
+
+async def test_barge_in_burst_reply_is_flushed(tmp_path: Path) -> None:
+    result, events = await _barge_call(
+        tmp_path, burst=True, yield_after_ms=300, send_interruption=True
+    )
+    assert result.status == "completed"
+    (barge,) = _kinds(events, "barge_in")
+    cut = next(e for e in _kinds(events, "agent_interruption") if e["t_ms"] > barge["t_ms"])
+    assert cut["flushed_ms"] > 500
+    # The next reply is due about 600 ms after the cut.
+    assert not _loud_between(result.run_dir / "agent.wav", cut["t_ms"] + 40, cut["t_ms"] + 450)
+
+
+async def test_barge_in_agent_never_yields(tmp_path: Path) -> None:
+    result, events = await _barge_call(tmp_path, burst=False)
+    assert result.status == "completed"
+    (barge,) = _kinds(events, "barge_in")
+    assert not _kinds(events, "agent_interruption")
+    assert _loud_between(result.run_dir / "agent.wav", barge["t_ms"], barge["t_ms"] + 2000)
+
+
+async def test_barge_in_missed_short_reply(tmp_path: Path) -> None:
+    result, events = await _call(tmp_path, FakeBehaviour(reply_ms=600), turns=2, barge_in={1: 1200})
+    assert result.status == "completed"
+    (missed,) = _kinds(events, "barge_in_missed")
+    assert missed["turn"] == 1
+    assert missed["after_agent_ms"] == 1200
+    assert not _kinds(events, "barge_in")

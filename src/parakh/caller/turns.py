@@ -19,8 +19,14 @@ Rules:
    reached), the machine finishes instead.
 5. CALLER_SPEAKING -> next state when the clip is fully sent. Agent audio during
    the clip does not interrupt it.
+6. On every entry into AGENT_SPEAKING the machine records the reply onset (the
+   agent_onset_ms input, else now) and keeps it until it leaves the state. When the
+   next turn has a barge_in offset, the agent is speaking and now reaches onset plus
+   that offset, the turn starts with barge_in=True. If the reply ends first, the turn
+   starts normally with barge_in=False. Turns without a barge-in carry None.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -37,6 +43,7 @@ class TurnState(StrEnum):
 class Action:
     kind: Literal["none", "start_turn", "finish", "timeout"]
     turn_index: int | None = None
+    barge_in: bool | None = None
 
 
 _NONE = Action("none")
@@ -52,6 +59,7 @@ class TurnMachine:
         max_turns: int,
         end_of_turn_silence_ms: float = 800,
         caller_first_silence_ms: float = 1000,
+        barge_in_ms: Sequence[float | None] = (),
     ) -> None:
         self.n_turns = n_turns
         self.agent_speaks_first = agent_speaks_first
@@ -59,8 +67,10 @@ class TurnMachine:
         self.max_turns = max_turns
         self.end_of_turn_silence_ms = end_of_turn_silence_ms
         self.caller_first_silence_ms = caller_first_silence_ms
+        self.barge_in_ms = barge_in_ms
         self.state = TurnState.WAIT_AGENT
         self.turns_started = 0
+        self.reply_onset_ms = 0.0
         self._wait_start_ms = 0.0
         self._agent_heard = False
         self._bot_stopped_latched = False
@@ -74,6 +84,24 @@ class TurnMachine:
         playback_end_ms: float | None,
         bot_stopped: bool,
         caller_done: bool,
+        agent_onset_ms: float | None = None,
+    ) -> Action:
+        before = self.state
+        action = self._dispatch(
+            now_ms, agent_speaking, playback_end_ms, bot_stopped, caller_done, agent_onset_ms
+        )
+        if self.state is TurnState.AGENT_SPEAKING and before is not TurnState.AGENT_SPEAKING:
+            self.reply_onset_ms = now_ms if agent_onset_ms is None else agent_onset_ms
+        return action
+
+    def _dispatch(
+        self,
+        now_ms: float,
+        agent_speaking: bool,
+        playback_end_ms: float | None,
+        bot_stopped: bool,
+        caller_done: bool,
+        agent_onset_ms: float | None,
     ) -> Action:
         match self.state:
             case TurnState.DONE:
@@ -128,7 +156,7 @@ class TurnMachine:
         ):
             self._bot_stopped_latched = False
         if agent_speaking:
-            return _NONE
+            return self._barge_in(now_ms)
         silent_long_enough = (
             playback_end_ms is not None and now_ms - playback_end_ms >= self.end_of_turn_silence_ms
         )
@@ -136,16 +164,31 @@ class TurnMachine:
             return _NONE
         return self._start_turn_or_finish()
 
+    def _turn_remains(self) -> bool:
+        return self.turns_started < self.n_turns and self.turns_started < self.max_turns
+
+    def _next_barge_in_ms(self) -> float | None:
+        i = self.turns_started
+        return self.barge_in_ms[i] if i < len(self.barge_in_ms) else None
+
+    def _barge_in(self, now_ms: float) -> Action:
+        after = self._next_barge_in_ms()
+        if after is None or not self._turn_remains() or now_ms < self.reply_onset_ms + after:
+            return _NONE
+        return self._start_turn(barge_in=True)
+
     def _start_turn_or_finish(self) -> Action:
-        if self.turns_started < self.n_turns and self.turns_started < self.max_turns:
-            return self._start_turn()
+        if self._turn_remains():
+            return self._start_turn(
+                barge_in=False if self._next_barge_in_ms() is not None else None
+            )
         self.state = TurnState.DONE
         return Action("finish")
 
-    def _start_turn(self) -> Action:
+    def _start_turn(self, *, barge_in: bool | None) -> Action:
         index = self.turns_started
         self.turns_started += 1
         self._bot_stopped_latched = False
         self._latched_end_ms = None
         self.state = TurnState.CALLER_SPEAKING
-        return Action("start_turn", index)
+        return Action("start_turn", index, barge_in=barge_in)

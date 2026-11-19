@@ -208,3 +208,82 @@ def test_caller_first_but_agent_greets() -> None:
         ],
     )
     assert out == [NONE, NONE, NONE, NONE, Action("start_turn", 0)]
+
+
+def _barge_machine(after_ms: float | None = 1200) -> TurnMachine:
+    return TurnMachine(
+        3,
+        agent_speaks_first=True,
+        response_timeout_ms=8000,
+        max_turns=10,
+        barge_in_ms=[None, after_ms],
+    )
+
+
+def _step(
+    m: TurnMachine,
+    now: float,
+    speaking: bool,
+    end: float,
+    onset: float | None,
+    *,
+    done: bool = False,
+) -> Action:
+    return m.step(
+        now,
+        agent_speaking=speaking,
+        playback_end_ms=end,
+        bot_stopped=False,
+        caller_done=done,
+        agent_onset_ms=onset,
+    )
+
+
+def _reply_begins(m: TurnMachine, reply_ms: float, end_ms: float) -> None:
+    """Greeting, caller turn 0, then the reply to it starts at reply_ms."""
+    assert _step(m, 0, True, 500, 0) == NONE
+    assert _step(m, 1300, False, 500, 0) == Action("start_turn", 0)
+    assert _step(m, 1400, False, 500, None, done=True) == NONE
+    assert _step(m, reply_ms, True, end_ms, reply_ms) == NONE  # enters AGENT_SPEAKING
+
+
+def test_barge_in_fires_after_onset() -> None:
+    m = _barge_machine()
+    _reply_begins(m, 2000, 9000)
+    assert _step(m, 3199, True, 9000, 2000) == NONE
+    assert _step(m, 3200, True, 9000, 2000) == Action("start_turn", 1, barge_in=True)
+
+
+def test_barge_in_counts_from_reply_onset() -> None:
+    m = _barge_machine()
+    _reply_begins(m, 2000, 9000)
+    assert _step(m, 2100, True, 9000, 2800) == NONE  # the clock onset moved; ours did not
+    assert _step(m, 3199, True, 9000, 2800) == NONE
+    assert _step(m, 3200, True, 9000, 2800) == Action("start_turn", 1, barge_in=True)
+
+
+def test_barge_in_missed_when_reply_ends_first() -> None:
+    m = _barge_machine()
+    _reply_begins(m, 2000, 2500)
+    assert _step(m, 3200, False, 2500, 2000) == NONE
+    assert _step(m, 3299, False, 2500, 2000) == NONE
+    assert _step(m, 3300, False, 2500, 2000) == Action("start_turn", 1, barge_in=False)
+
+
+def test_barge_in_on_greeting() -> None:
+    m = TurnMachine(
+        2,
+        agent_speaks_first=True,
+        response_timeout_ms=8000,
+        max_turns=10,
+        barge_in_ms=[500],
+    )
+    assert _step(m, 100, True, 3000, 100) == NONE
+    assert _step(m, 599, True, 3000, 100) == NONE
+    assert _step(m, 600, True, 3000, 100) == Action("start_turn", 0, barge_in=True)
+
+
+def test_turn_without_barge_in_has_none() -> None:
+    m = _barge_machine()
+    assert _step(m, 0, True, 500, 0) == NONE
+    assert _step(m, 1300, False, 500, 0) == Action("start_turn", 0, barge_in=None)

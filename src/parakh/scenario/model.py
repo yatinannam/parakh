@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class ScenarioError(ValueError):
@@ -59,6 +59,12 @@ class Scenario(_Strict):
     turns: list[Turn] = Field(min_length=1)
     expect: dict[str, Any] | None = None
     limits: Limits = Field(default_factory=Limits)
+
+    @model_validator(mode="after")
+    def _first_turn_barge_in_needs_agent_first(self) -> Scenario:
+        if not self.agent_speaks_first and self.turns[0].barge_in is not None:
+            raise ValueError("barge_in on the first turn needs agent_speaks_first: true")
+        return self
 
     @field_validator("clock")
     @classmethod

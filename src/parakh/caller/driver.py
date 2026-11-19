@@ -89,13 +89,18 @@ class _Call:
         self._rate = line.rate
         self._bed_next = 0  # the bed loops across the gaps between turns
         self._deadline_ns = t0_ns + round(scenario.limits.call_timeout_s * _NS_PER_S)
+        self._barge_offsets = [
+            None if t.barge_in is None else t.barge_in.after_agent_ms for t in scenario.turns
+        ]
         self.machine = TurnMachine(
             len(line.turns),
             agent_speaks_first=scenario.agent_speaks_first,
             response_timeout_ms=scenario.limits.response_timeout_s * 1000,
             max_turns=scenario.limits.max_turns,
             end_of_turn_silence_ms=end_of_turn_silence_ms,
+            barge_in_ms=self._barge_offsets,
         )
+        self._barge: bool | None = None  # how the turn in progress began, if it has a barge-in
         self._turns_to_play = min(len(line.turns), scenario.limits.max_turns)
         self._clock = PlaybackClock()
         self.pacer = Pacer(frame_ns=FRAME_MS * _NS_PER_MS)
@@ -199,6 +204,7 @@ class _Call:
                 self._next = 0
                 self._speech_end_ns = None
                 self._reply_heard = False
+                self._barge = action.barge_in
             await self._send_frame(conn)
 
     def _step(self, now_ns: int) -> Action:
@@ -211,12 +217,14 @@ class _Call:
         # The machine sees the playback end of the last loud frame (EC-27), so the
         # 800 ms fallback and the bot-stopped latch ignore silence streamed after it.
         end_ns = self._clock.loud_end_ns
+        onset_ns = self._clock.onset_ns
         return self.machine.step(
             self._ms(now_ns),
             agent_speaking=self._clock.speaking(now_ns),
             playback_end_ms=None if end_ns is None else self._ms(end_ns),
             bot_stopped=bot_stopped,
             caller_done=self._frames is None,
+            agent_onset_ms=None if onset_ns is None else self._ms(onset_ns),
         )
 
     async def _send_frame(self, conn: AgentConnection) -> None:
@@ -225,6 +233,7 @@ class _Call:
         if frames is not None:
             if self._next == 0:
                 self._event("caller_turn_start", t_send, turn=self._turn)
+                self._log_barge(t_send)
             if self._next == self._line.turns[self._turn].speech_end_frame:
                 self._event("caller_speech_end", t_send, turn=self._turn)
                 self._speech_end_ns = t_send
@@ -243,6 +252,16 @@ class _Call:
                 self._event("caller_turn_end", time.perf_counter_ns(), turn=self._turn)
                 self._bot_stopped = False  # it belonged to the reply before this one
                 self._frames = None
+
+    def _log_barge(self, t_ns: int) -> None:
+        after = self._barge_offsets[self._turn]
+        if self._barge is True:
+            onset = round(self.machine.reply_onset_ms, 3)
+            self._event(
+                "barge_in", t_ns, turn=self._turn, after_agent_ms=after, agent_onset_ms=onset
+            )
+        elif self._barge is False:
+            self._event("barge_in_missed", t_ns, turn=self._turn, after_agent_ms=after)
 
     async def _receive(self, conn: AgentConnection) -> None:
         try:
