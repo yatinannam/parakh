@@ -336,15 +336,3 @@ async def test_8khz_wire_call(tmp_path: Path) -> None:
         assert x.latency_ms is not None
         assert abs(x.latency_ms - 500) <= TOL_MS
     assert read_wav(result.run_dir / "caller.wav")[1] == 16000
-
-
-async def test_streamed_silence_with_burst_replies_keeps_latency(tmp_path: Path) -> None:
-    behaviour = FakeBehaviour(stream_silence=True, burst=True)
-    result, events = await _call(tmp_path, behaviour, turns=3, call_timeout_s=12.0)
-    assert result.status == "completed"
-    latencies = response_latencies(events)
-    print("latencies_ms", [x.latency_ms for x in latencies])
-    assert [x.turn for x in latencies] == [0, 1, 2]
-    for x in latencies:
-        assert x.latency_ms is not None
-        assert abs(x.latency_ms - 500) <= TOL_MS

@@ -260,3 +260,23 @@ def test_interruption_flushes_clock_and_recorder(tmp_path: Path) -> None:
     pcm, _ = read_wav(run_dir / "agent.wav")
     assert not pcm[6400:].any()
     assert pcm[:6400].any()
+
+
+def test_streamed_silence_behind_a_burst_does_not_delay_the_next_reply(tmp_path: Path) -> None:
+    # M1 drift: an agent streams a silent frame every 20 ms while a burst reply is still
+    # queued on the playback clock. The silence used to queue behind the burst and push
+    # every later reply, and loud_end, later by the silence it had streamed.
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    rec = Recorder(tmp_path / "dir with space" / "run", T0)
+    silent = AgentAudio(b"\x00\x00" * 320, 16000, 1)
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        call._on_event(AgentAudio(b"\x00\x10" * 9600, 16000, 1), T0)  # 600 ms burst
+        for k in range(1, 30):
+            call._on_event(silent, T0 + k * 20 * MS)  # all arrive before the burst ends
+        assert call._clock.loud_end_ns == T0 + 600 * MS
+        assert call._clock.playback_end_ns == T0 + 600 * MS
+        call._on_event(AgentAudio(b"\x00\x10" * 9600, 16000, 1), T0 + 1000 * MS)
+        assert call._clock.loud_end_ns == T0 + 1600 * MS  # not 1780 ms
+    finally:
+        rec.close()
