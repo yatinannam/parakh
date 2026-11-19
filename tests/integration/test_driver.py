@@ -65,12 +65,13 @@ async def _call(
     agent_speaks_first: bool = True,
     call_timeout_s: float = 20.0,
     max_turns: int = 12,
+    agent_rate: int = 16000,
 ) -> tuple[CallResult, list[dict[str, Any]]]:
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", turns)
     scenario = _scenario(turns, agent_speaks_first, call_timeout_s, max_turns)
     async with fake_agent(behaviour) as url:
-        result = await run_call(url, scenario, clips, base / "run")
+        result = await run_call(url, scenario, clips, base / "run", agent_rate=agent_rate)
     return result, read_events(result.run_dir)
 
 
@@ -302,3 +303,48 @@ async def test_close_before_final_reply_is_disconnected(tmp_path: Path) -> None:
     assert result.turns_started == 2
     assert len(_kinds(events, "caller_turn_end")) == 2
     _assert_ends_with_call_end(events, "agent_disconnected")
+
+
+async def test_speech_end_logged_on_its_frame(tmp_path: Path) -> None:
+    rate = 16000
+    t = np.arange(rate * 400 // 1000) / rate
+    tone = np.round(3000 * np.sin(2 * np.pi * 300 * t)).astype(np.int16)
+    pcm = np.concatenate([tone, np.zeros(rate * 200 // 1000, dtype=np.int16)])
+    base = tmp_path / "dir with space"
+    path = base / "clips" / "turn 0.wav"
+    write_wav(path, pcm, rate)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    clip = CallerClip(0, path, rate, 400, 600, digest)
+    async with fake_agent(FakeBehaviour()) as url:
+        result = await run_call(url, _scenario(1, True, 20.0), [clip], base / "run")
+    events = read_events(result.run_dir)
+    speech_end = _kinds(events, "caller_speech_end")[0]
+    frame20 = [e for e in _kinds(events, "caller_frame") if e["turn"] == 0 and e["frame"] == 20]
+    assert len(frame20) == 1
+    assert speech_end["t_ms"] == frame20[0]["t_ms"]
+
+
+async def test_8khz_wire_call(tmp_path: Path) -> None:
+    behaviour = FakeBehaviour(out_rate=8000)
+    result, events = await _call(tmp_path, behaviour, turns=2, agent_rate=8000)
+    assert result.status == "completed"
+    assert behaviour.received
+    assert all(entry == (8000, 160) for entry in behaviour.received)
+    latencies = response_latencies(events)
+    assert len(latencies) == 2
+    for x in latencies:
+        assert x.latency_ms is not None
+        assert abs(x.latency_ms - 500) <= TOL_MS
+    assert read_wav(result.run_dir / "caller.wav")[1] == 16000
+
+
+async def test_streamed_silence_with_burst_replies_keeps_latency(tmp_path: Path) -> None:
+    behaviour = FakeBehaviour(stream_silence=True, burst=True)
+    result, events = await _call(tmp_path, behaviour, turns=3, call_timeout_s=12.0)
+    assert result.status == "completed"
+    latencies = response_latencies(events)
+    print("latencies_ms", [x.latency_ms for x in latencies])
+    assert [x.turn for x in latencies] == [0, 1, 2]
+    for x in latencies:
+        assert x.latency_ms is not None
+        assert abs(x.latency_ms - 500) <= TOL_MS

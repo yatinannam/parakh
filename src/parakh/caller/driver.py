@@ -198,8 +198,7 @@ class _Call:
         pacer_t0 = self.pacer.start()
         # caller.wav is the sent frames in order, with no time origin of its own. Lead
         # it with silence for the time spent connecting, so it starts at t0.
-        lead = np.zeros(round((pacer_t0 - self._t0) * _WAV_RATE / _NS_PER_S), dtype=np.int16)
-        self._rec.caller_frame(pacer_t0, lead, _WAV_RATE)
+        self._rec.caller_lead(round((pacer_t0 - self._t0) * self._rate / _NS_PER_S))
         next_cpu_ns = time.perf_counter_ns() + _NS_PER_S
         while True:
             await self.pacer.tick()
@@ -253,12 +252,14 @@ class _Call:
             if self._next == self._clips[self._turn].speech_end_frame:
                 self._event("caller_speech_end", t_send, turn=self._turn)
                 self._speech_end_ns = t_send
-        self._rec.caller_frame(t_send, frame, self._rate)
+        turn, index = (self._turn, self._next) if frames is not None else (None, None)
+        self._rec.caller_frame(t_send, frame, self._rate, turn=turn, frame=index)
         await conn.send_audio(frame.tobytes(), self._rate)
         if frames is not None:
             self._next += 1
             if self._next == len(frames):
                 self._event("caller_turn_end", time.perf_counter_ns(), turn=self._turn)
+                self._bot_stopped = False  # it belonged to the reply before this one
                 self._frames = None
 
     async def _receive(self, conn: AgentConnection) -> None:
@@ -287,8 +288,13 @@ class _Call:
         mapped = map_event(event, self._repeats)
         if mapped.warning is not None:
             self._warn(mapped.warning, now)
+        fields = mapped.fields
+        if mapped.interruption:
+            dropped_ns = self._clock.flush(now)
+            self._rec.agent_flush(now)
+            fields = {**fields, "flushed_ms": round(dropped_ns / _NS_PER_MS, 3)}
         if mapped.kind is not None:
-            self._event(mapped.kind, now, **mapped.fields)
+            self._event(mapped.kind, now, **fields)
         if mapped.agent_info is not None:
             self.agent_info = mapped.agent_info
         if mapped.bot_stopped:
@@ -300,7 +306,8 @@ class _Call:
         if self._speech_end_ns is not None and now > self._speech_end_ns:
             self._reply_heard = self._reply_heard or loud
         start = self._clock.on_audio(now, len(pcm), audio.sample_rate, loud=loud)
-        self._rec.agent_frame(now, pcm, audio.sample_rate, self._ms(start))
+        play_ms = None if start is None else self._ms(start)
+        self._rec.agent_frame(now, pcm, audio.sample_rate, play_ms)
 
     def result(self, run_dir: Path) -> CallResult:
         assert self.status is not None, "result() before the call ended"

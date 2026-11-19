@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from parakh.audio import read_wav
+from parakh.audio import read_wav, resample
 from parakh.caller.recorder import Recorder, read_events
 
 T0 = 1_000_000_000
@@ -32,7 +32,7 @@ def test_caller_wav_has_every_frame(tmp_path: Path) -> None:
     run = tmp_path / "dir with space" / "run"
     rec = Recorder(run, T0)
     for i in range(50):
-        rec.caller_frame(T0 + i * 20_000_000, _tone(320), 16000)
+        rec.caller_frame(T0 + i * 20_000_000, _tone(320), 16000, turn=None, frame=None)
     rec.close()
     pcm, rate = read_wav(run / "caller.wav")
     assert rate == 16000
@@ -184,3 +184,93 @@ def test_event_write_error_raised_at_close(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="disk full"):
         rec.close()
     assert (run / "caller.wav").is_file()
+
+
+def _sine(n: int, rate: int) -> np.ndarray:
+    t = np.arange(n) / rate
+    return np.round(8000 * np.sin(2 * np.pi * 440 * t)).astype(np.int16)
+
+
+def test_agent_runs_resampled_once(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    whole = _sine(24000, 24000)
+    frames = [whole[i * 480 : (i + 1) * 480] for i in range(50)]
+    rec = Recorder(run, T0)
+    for i, frame in enumerate(frames):
+        rec.agent_frame(T0 + i * 20_000_000, frame, 24000, i * 20.0)
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    expected = resample(whole, 24000, 16000)
+    assert len(pcm) == len(expected)
+    assert np.abs(pcm.astype(np.int32) - expected.astype(np.int32)).max() <= 1
+    per_frame = np.concatenate([resample(f, 24000, 16000) for f in frames])
+    assert np.abs(per_frame.astype(np.int32) - expected.astype(np.int32)).max() > 1
+
+
+def test_agent_flush_cuts_track(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(16000, 5000), 16000, 0.0)
+    rec.agent_flush(T0 + 400_000_000)
+    rec.agent_frame(T0 + 500_000_000, _tone(160, 7000), 16000, 500.0)  # after the flush: kept
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    assert (pcm[:6400] == 5000).all()
+    assert not pcm[6400:8000].any()
+    assert (pcm[8000:8160] == 7000).all()
+
+
+def test_agent_flush_drops_frames_starting_after_the_cut(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(320, 1000), 16000, 0.0)
+    rec.agent_frame(T0, _tone(320, 2000), 16000, 20.0)
+    rec.agent_flush(T0 + 10_000_000)
+    rec.close()
+    pcm, _ = read_wav(run / "agent.wav")
+    assert len(pcm) == 160
+    assert (pcm == 1000).all()
+
+
+def test_caller_frames_logged_and_resampled_once(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    whole = _sine(1600, 8000)
+    rec = Recorder(run, T0)
+    for i in range(10):
+        frame = whole[i * 160 : (i + 1) * 160]
+        rec.caller_frame(T0 + i * 20_000_000, frame, 8000, turn=0, frame=i, lost=i == 3)
+    rec.close()
+    events = read_events(run)
+    assert [(e["kind"], e["turn"], e["frame"], e["lost"]) for e in events] == [
+        ("caller_frame", 0, i, i == 3) for i in range(10)
+    ]
+    pcm, rate = read_wav(run / "caller.wav")
+    assert rate == 16000
+    assert np.array_equal(pcm, resample(whole, 8000, 16000))
+
+
+def test_caller_lead_precedes_frames_and_rates_must_match(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.caller_lead(80)  # 10 ms at 8 kHz
+    rec.caller_frame(T0, _tone(160, 3000), 8000, turn=None, frame=None)
+    with pytest.raises(ValueError, match="rate"):
+        rec.caller_frame(T0, _tone(160, 3000), 16000, turn=None, frame=None)
+    rec.close()
+    pcm, _ = read_wav(run / "caller.wav")
+    assert len(pcm) == 480
+    assert not pcm[:100].any()  # the lead is 160 samples at 16 kHz
+    assert (np.abs(pcm[240:420].astype(int) - 3000) < 100).all()
+    assert [e["kind"] for e in read_events(run)] == ["caller_frame"]
+
+
+def test_agent_audio_event_has_play_ms(tmp_path: Path) -> None:
+    run = tmp_path / "dir with space" / "run"
+    rec = Recorder(run, T0)
+    rec.agent_frame(T0, _tone(160), 16000, 123.456)
+    rec.agent_frame(T0, _tone(160), 16000, None)
+    rec.close()
+    events = read_events(run)
+    assert events[0]["play_ms"] == 123.456
+    assert events[1]["play_ms"] is None
+    assert len(read_wav(run / "agent.wav")[0]) == round(123.456 * 16) + 160

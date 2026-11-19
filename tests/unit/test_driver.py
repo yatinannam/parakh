@@ -3,15 +3,23 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
+from parakh.audio import read_wav
 from parakh.caller import driver
 from parakh.caller.recorder import Recorder, read_events
-from parakh.caller.turns import TurnState
+from parakh.caller.turns import Action, TurnState
 from parakh.scenario import CallerVoice, Limits, Scenario, Turn
-from parakh.transport.codec import BOT_STOPPED, AgentAudio, AgentText, RtviMessage
+from parakh.transport.codec import (
+    BOT_STOPPED,
+    AgentAudio,
+    AgentInterruption,
+    AgentText,
+    RtviMessage,
+)
 from parakh.transport.ws import AgentConnection
 
 T0 = 1_000_000_000
@@ -172,3 +180,83 @@ async def test_receive_yields_between_messages(tmp_path: Path) -> None:
     finally:
         rec.close()
     assert ticks >= 100
+
+
+def test_bot_stopped_hold_discarded_at_caller_turn_end(tmp_path: Path) -> None:
+    # A bot-stopped that arrives while the caller's clip plays belongs to the reply
+    # before it. Once the clip's last frame is sent it is discarded, so a new burst
+    # reply is not ended by it: the reply waits for end_of_turn_silence_ms of quiet.
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 2, 1)
+    rec = Recorder(tmp_path / "dir with space" / "run", T0)
+
+    class _Conn:
+        async def send_audio(self, data: bytes, rate: int) -> None:
+            return None
+
+    async def run() -> None:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        call._turn, call._frames, call._next = 0, clip.frames, 0
+        await call._send_frame(_Conn())  # type: ignore[arg-type]
+        call._on_event(RtviMessage(BOT_STOPPED, {}, {}), T0 + MS)
+        assert call._bot_stopped
+        await call._send_frame(_Conn())  # type: ignore[arg-type]  # last frame
+        assert not call._bot_stopped
+        call.machine.state = TurnState.WAIT_AGENT
+        call._on_event(AgentAudio(b"\x00\x10" * 3200, 16000, 1), T0 + 100 * MS)  # 200 ms
+        assert call._step(T0 + 101 * MS).kind == "none"
+        assert call.machine.state is TurnState.AGENT_SPEAKING
+        # playback ends at 300 ms; with no bot-stopped the reply waits 800 ms of quiet
+        assert call._step(T0 + 400 * MS).kind == "none"
+        assert call._step(T0 + 1000 * MS).kind == "none"
+
+    try:
+        asyncio.run(run())
+    finally:
+        rec.close()
+
+
+def test_bot_stopped_hold_not_passed_in_wait_agent_or_caller_speaking(tmp_path: Path) -> None:
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    rec = Recorder(tmp_path / "dir with space" / "run", T0)
+    passed: list[bool] = []
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        real = call.machine.step
+
+        def spy(*args: Any, **kwargs: Any) -> Action:
+            passed.append(bool(kwargs["bot_stopped"]))
+            return real(*args, **kwargs)
+
+        call.machine.step = spy  # type: ignore[method-assign]
+        call._on_event(RtviMessage(BOT_STOPPED, {}, {}), T0)
+        call.machine.state = TurnState.WAIT_AGENT
+        call._step(T0 + 20 * MS)
+        call.machine.state = TurnState.CALLER_SPEAKING
+        call._step(T0 + 40 * MS)
+        assert passed == [False, False]
+        assert call._bot_stopped
+        call.machine.state = TurnState.AGENT_SPEAKING
+        call._step(T0 + 60 * MS)
+        assert passed[-1] is True
+        assert not call._bot_stopped
+    finally:
+        rec.close()
+
+
+def test_interruption_flushes_clock_and_recorder(tmp_path: Path) -> None:
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    run_dir = tmp_path / "dir with space" / "run"
+    rec = Recorder(run_dir, T0)
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        call._on_event(AgentAudio(b"\x00\x10" * 16000, 16000, 1), T0)  # 1000 ms
+        call._on_event(AgentInterruption(), T0 + 400 * MS)
+        assert not call._clock.speaking(T0 + 401 * MS)
+    finally:
+        rec.close()
+    events = read_events(run_dir)
+    interruption = [e for e in events if e["kind"] == "agent_interruption"]
+    assert [e["flushed_ms"] for e in interruption] == [600.0]
+    pcm, _ = read_wav(run_dir / "agent.wav")
+    assert not pcm[6400:].any()
+    assert pcm[:6400].any()

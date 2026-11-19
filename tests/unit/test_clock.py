@@ -36,7 +36,31 @@ def test_silent_frames_keep_their_place_but_do_not_count_as_speaking() -> None:
     assert clock.loud_end_ns == 220 * MS
     for k in range(50):
         clock.on_audio(k * 20 * MS, 320, 16_000, loud=False)
-    assert clock.playback_end_ns == 1220 * MS
+    assert clock.playback_end_ns == 1000 * MS  # silence behind a backlog is not placed
     assert clock.loud_end_ns == 220 * MS
     assert clock.speaking(219 * MS)
     assert not clock.speaking(220 * MS)
+
+
+def test_silence_does_not_queue_behind_backlog() -> None:
+    clock = PlaybackClock()
+    clock.on_audio(0, 1600, 16_000, loud=True)  # 100 ms
+    assert clock.playback_end_ns == 100 * MS
+    assert clock.on_audio(10 * MS, 320, 16_000, loud=False) is None
+    assert clock.playback_end_ns == 100 * MS
+    assert clock.loud_end_ns == 100 * MS
+    assert clock.on_audio(10 * MS, 320, 16_000, loud=True) == 100 * MS  # loud still queues
+    assert clock.on_audio(500 * MS, 320, 16_000, loud=False) == 500 * MS  # idle: placed
+
+
+def test_flush_drops_queued_audio() -> None:
+    clock = PlaybackClock()
+    assert clock.flush(0) == 0
+    clock.on_audio(0, 8000, 16_000, loud=True)  # 500 ms burst
+    assert clock.flush(200 * MS) == 300 * MS
+    assert clock.playback_end_ns == 200 * MS
+    assert clock.loud_end_ns == 200 * MS
+    assert clock.speaking(199 * MS)
+    assert not clock.speaking(201 * MS)
+    assert clock.flush(300 * MS) == 0
+    assert clock.loud_end_ns == 200 * MS

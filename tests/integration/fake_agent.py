@@ -46,7 +46,8 @@ class FakeBehaviour:
     N closes it when the reply to utterance N would start. accept_delay_ms holds the
     opening handshake back, so connecting takes that long. stream_silence sends a
     silent 20 ms frame every 20 ms whenever the agent is not speaking, as some
-    telephony agents do, from connect to close.
+    telephony agents do, from connect to close. received records (sample_rate, n_samples)
+    of every caller audio frame.
     """
 
     greet_ms: int | None = 300
@@ -63,6 +64,7 @@ class FakeBehaviour:
     close_before_reply_to: int | None = None
     accept_delay_ms: int = 0
     stream_silence: bool = False
+    received: list[tuple[int, int]] = field(default_factory=list)
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -154,6 +156,7 @@ class _Session:
         frame = _Frame.FromString(message)
         if frame.WhichOneof("frame") != "audio":
             return
+        self._b.received.append((frame.audio.sample_rate, len(frame.audio.audio) // 2))
         if dbfs(np.frombuffer(frame.audio.audio, dtype="<i2")) <= SPEECH_DBFS:
             return
         self._last_loud_ns = time.perf_counter_ns()
