@@ -25,6 +25,13 @@ class JitterModel(_Strict):
     max_ms: float
 
 
+class TurnDegradation(_Strict):
+    snr_db: float | None
+    frames: int
+    lost_frames: int
+    clipped_samples: int
+
+
 class TurnReport(_Strict):
     index: int
     say: str
@@ -37,6 +44,8 @@ class TurnReport(_Strict):
     agent_text: str
     # TTFB values from RTVI metrics messages during the turn, converted from seconds to ms.
     agent_ttfb_ms: list[float]
+    # Default so reports written before presets existed still load under schema_version 1.
+    degradation: TurnDegradation | None = None
 
 
 class Metrics(_Strict):

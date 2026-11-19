@@ -8,7 +8,9 @@ from pathlib import Path
 
 from parakh.audio import SUPPORTED_RATES
 from parakh.caller.driver import run_call
+from parakh.caller.line import build_line
 from parakh.caller.recorder import read_events
+from parakh.degrade import get_preset
 from parakh.report.build import (
     build_report,
     fallback_report,
@@ -22,8 +24,6 @@ from parakh.transport.ws import check_agent_url, redact_url
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
 from parakh.tts.engine import EdgeTTSEngine, TTSEngine
 from parakh.tts.ffmpeg import require_ffmpeg
-
-PRESETS = ("clean",)
 
 
 def exit_code(report: Report) -> int:
@@ -48,14 +48,14 @@ async def run_scenario(
 ) -> tuple[Report, Path]:
     """Run one scenario against an agent; always write report.json and report.html.
 
-    Raises ValueError (unknown preset, bad agent URL, unsupported agent_rate),
-    ScenarioError and FfmpegMissing before anything is written to runs_dir.
+    Raises ValueError (unknown preset, bad agent URL, unsupported agent_rate, a
+    DegradeError such as a silent scenario under a noise preset), ScenarioError and
+    FfmpegMissing before anything is written to runs_dir.
     on_start is called once with the run directory just before the call starts.
     On Ctrl+C a partial report is written (status "interrupted") and the interrupt
     is re-raised.
     """
-    if preset not in PRESETS:
-        raise ValueError(f"unknown preset {preset!r}; available: {', '.join(PRESETS)}")
+    get_preset(preset)  # ValueError for an unknown preset
     if agent_rate not in SUPPORTED_RATES:
         rates = ", ".join(str(r) for r in SUPPORTED_RATES)
         raise ValueError(f"agent_rate {agent_rate} is not supported; use one of: {rates}")
@@ -64,17 +64,18 @@ async def run_scenario(
     require_ffmpeg()
     run_id = secrets.token_hex(4)
     run_dir = runs_dir / run_id
+    cache = TTSCache(cache_dir)
+    tts = engine if engine is not None else EdgeTTSEngine()
     try:
-        clips, _ = await build_scenario_audio(
-            scenario, TTSCache(cache_dir), engine if engine is not None else EdgeTTSEngine()
-        )
+        clips, _ = await build_scenario_audio(scenario, cache, tts)
+        line = await build_line(scenario, clips, preset, agent_rate, cache=cache, engine=tts)
     except (KeyboardInterrupt, asyncio.CancelledError):
         _write_interrupted(scenario, run_id, run_dir, agent_url, preset)
         raise
     try:
         if on_start is not None:
             on_start(run_dir)
-        result = await run_call(agent_url, scenario, clips, run_dir, agent_rate=agent_rate)
+        result = await run_call(agent_url, scenario, line, run_dir)
         report = build_report(
             scenario,
             result,
@@ -82,6 +83,7 @@ async def run_scenario(
             run_id=run_id,
             agent_url=agent_url,
             preset=preset,
+            line=line,
         )
     except (KeyboardInterrupt, asyncio.CancelledError):
         _write_interrupted(scenario, run_id, run_dir, agent_url, preset)

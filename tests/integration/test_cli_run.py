@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 
 from parakh import cli
 from parakh.cli import app
+from parakh.run import run_scenario
 from tests.fakes import FakeEngine
 from tests.integration.fake_agent import FakeBehaviour, fake_agent
 
@@ -153,9 +154,10 @@ def test_run_bad_url_exit_2_without_run_dir(tmp_path: Path) -> None:
 
 
 def test_run_unknown_preset_exit_2(tmp_path: Path) -> None:
-    result, _ = _invoke(tmp_path, "ws://127.0.0.1:1", "--preset", "telephone")
+    result, runs = _invoke(tmp_path, "ws://127.0.0.1:1", "--preset", "telephone")
     assert result.exit_code == 2
-    assert "preset" in result.output
+    assert "unknown preset 'telephone'; available: clean, phone" in result.output
+    assert not runs.exists()
 
 
 def test_run_without_ffmpeg_exit_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,3 +227,31 @@ def test_run_scoring_failure_still_writes_report(
     assert report["status"] == "internal_error"
     assert any("RuntimeError" in w for w in report["warnings"])
     assert (run_dir / "report.html").is_file()
+
+
+def test_run_with_preset_records_seed_and_degradation(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    scenario = base / "s.yaml"
+    scenario.write_text(SCENARIO, encoding="utf-8")
+    with background_agent(FakeBehaviour(transcripts=["one", "two", "three", "four"])) as url:
+        report, run_dir = asyncio.run(
+            run_scenario(
+                scenario,
+                url,
+                preset="phone_lossy",
+                runs_dir=base / "runs",
+                engine=FakeEngine(),
+                cache_dir=base / "cache",
+            )
+        )
+    assert report.status == "completed"
+    assert isinstance(report.seed, int)
+    assert len(report.turns) == 4
+    for turn in report.turns:
+        assert turn.degradation is not None
+        assert turn.degradation.frames > 0
+    html = (run_dir / "report.html").read_text(encoding="utf-8")
+    assert "phone_lossy" in html
+    assert f"seed {report.seed}" in html
+    assert "lost " in html

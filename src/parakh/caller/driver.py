@@ -1,7 +1,8 @@
 """Real-time call driver over Pipecat's protobuf WebSocket protocol.
 
-One task paces a 20 ms caller frame on every tick for the whole call (the clip of
-the caller turn in progress, else silence) and steps the turn machine. A second
+One task paces a 20 ms caller frame on every tick for the whole call (the frames of
+the caller turn in progress, else the line's noise bed, looped) and steps the turn
+machine. The frames come prepared and degraded from parakh.caller.line. A second
 task receives agent events: audio feeds the virtual playback clock and the
 recorder, RTVI messages become events. The recorder is always closed, so a failed
 call still leaves events.jsonl and both WAV tracks, and call_end is the last event.
@@ -24,21 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
 import psutil
 
-from parakh.audio import (
-    FRAME_MS,
-    PCM,
-    SAMPLE_RATE,
-    SPEECH_DBFS,
-    dbfs,
-    read_wav,
-    resample,
-    split_frames,
-)
+from parakh.audio import FRAME_MS, PCM, SAMPLE_RATE, SPEECH_DBFS, dbfs
 from parakh.caller.clock import PlaybackClock
 from parakh.caller.events import agent_pcm, map_event
+from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats, Pacer
 from parakh.caller.recorder import Recorder
 from parakh.caller.turns import Action, TurnMachine, TurnState
@@ -50,7 +42,6 @@ from parakh.transport.codec import (
     RtviRepeats,
 )
 from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url
-from parakh.tts.cache import CallerClip
 
 CallStatus = Literal[
     # The turn machine finished, or the agent closed the socket after replying to the
@@ -83,44 +74,29 @@ class CallResult:
     warnings: list[str]
 
 
-@dataclass(frozen=True)
-class _Clip:
-    frames: list[PCM]
-    speech_end_frame: int
-
-
-def _load_clip(clip: CallerClip, rate: int) -> _Clip:
-    pcm, src_rate = read_wav(clip.path)
-    frames = split_frames(resample(pcm, src_rate, rate), rate)
-    if not frames:
-        frames = [np.zeros(rate * FRAME_MS // 1000, dtype=np.int16)]
-    return _Clip(frames, min(len(frames) - 1, clip.speech_end_ms // FRAME_MS))
-
-
 class _Call:
     def __init__(
         self,
         scenario: Scenario,
-        clips: list[_Clip],
+        line: CallerLine,
         recorder: Recorder,
         t0_ns: int,
-        agent_rate: int,
         end_of_turn_silence_ms: float,
     ) -> None:
-        self._clips = clips
+        self._line = line
         self._rec = recorder
         self._t0 = t0_ns
-        self._rate = agent_rate
-        self._silence = np.zeros(agent_rate * FRAME_MS // 1000, dtype=np.int16)
+        self._rate = line.rate
+        self._bed_next = 0  # the bed loops across the gaps between turns
         self._deadline_ns = t0_ns + round(scenario.limits.call_timeout_s * _NS_PER_S)
         self.machine = TurnMachine(
-            len(clips),
+            len(line.turns),
             agent_speaks_first=scenario.agent_speaks_first,
             response_timeout_ms=scenario.limits.response_timeout_s * 1000,
             max_turns=scenario.limits.max_turns,
             end_of_turn_silence_ms=end_of_turn_silence_ms,
         )
-        self._turns_to_play = min(len(clips), scenario.limits.max_turns)
+        self._turns_to_play = min(len(line.turns), scenario.limits.max_turns)
         self._clock = PlaybackClock()
         self.pacer = Pacer(frame_ns=FRAME_MS * _NS_PER_MS)
         self.status: CallStatus | None = None
@@ -219,7 +195,7 @@ class _Call:
             if action.kind == "start_turn" and action.turn_index is not None:
                 self._bot_stopped = False  # it belonged to the reply before this turn
                 self._turn = action.turn_index
-                self._frames = self._clips[action.turn_index].frames
+                self._frames = self._line.turns[action.turn_index].frames
                 self._next = 0
                 self._speech_end_ns = None
                 self._reply_heard = False
@@ -245,16 +221,21 @@ class _Call:
 
     async def _send_frame(self, conn: AgentConnection) -> None:
         frames = self._frames
-        frame = self._silence if frames is None else frames[self._next]
         t_send = time.perf_counter_ns()
         if frames is not None:
             if self._next == 0:
                 self._event("caller_turn_start", t_send, turn=self._turn)
-            if self._next == self._clips[self._turn].speech_end_frame:
+            if self._next == self._line.turns[self._turn].speech_end_frame:
                 self._event("caller_speech_end", t_send, turn=self._turn)
                 self._speech_end_ns = t_send
-        turn, index = (self._turn, self._next) if frames is not None else (None, None)
-        self._rec.caller_frame(t_send, frame, self._rate, turn=turn, frame=index)
+        if frames is None:
+            turn, index, frame = None, self._bed_next, self._line.bed[self._bed_next]
+            lost = self._line.bed_lost[index]
+            self._bed_next = (self._bed_next + 1) % len(self._line.bed)
+        else:
+            turn, index, frame = self._turn, self._next, frames[self._next]
+            lost = self._line.turns[turn].lost[index]
+        self._rec.caller_frame(t_send, frame, self._rate, turn=turn, frame=index, lost=lost)
         await conn.send_audio(frame.tobytes(), self._rate)
         if frames is not None:
             self._next += 1
@@ -327,10 +308,9 @@ class _Call:
 async def run_call(
     url: str,
     scenario: Scenario,
-    clips: list[CallerClip],
+    line: CallerLine,
     run_dir: Path,
     *,
-    agent_rate: int = 16000,
     end_of_turn_silence_ms: float = 800,
 ) -> CallResult:
     """Run one real-time call against the agent at url and record it under run_dir.
@@ -339,11 +319,10 @@ async def run_call(
     not ws:// or wss:// raises ValueError before anything is written.
     """
     check_agent_url(url)
-    loaded = [_load_clip(clip, agent_rate) for clip in clips]
     psutil.cpu_percent(interval=None)  # primes the counter; this first reading is meaningless
     t0 = time.perf_counter_ns()
     recorder = Recorder(run_dir, t0, _WAV_RATE)
-    call = _Call(scenario, loaded, recorder, t0, agent_rate, end_of_turn_silence_ms)
+    call = _Call(scenario, line, recorder, t0, end_of_turn_silence_ms)
     try:
         await call.run(url)
     finally:

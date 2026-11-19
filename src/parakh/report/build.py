@@ -9,6 +9,7 @@ from typing import Any
 import parakh
 from parakh import __version__
 from parakh.caller.driver import CallResult
+from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats
 from parakh.caller.recorder import read_events
 from parakh.report.model import (
@@ -16,6 +17,7 @@ from parakh.report.model import (
     LatencyStatsModel,
     Metrics,
     Report,
+    TurnDegradation,
     TurnReport,
 )
 from parakh.scenario import Scenario
@@ -73,6 +75,20 @@ def _ttfb_ms(data: Any) -> list[float]:
     return out
 
 
+def _degradation(line: CallerLine | None, index: int) -> TurnDegradation | None:
+    if line is None or index >= len(line.turns):
+        return None
+    s = line.turns[index].stats
+    if s is None:
+        return None
+    return TurnDegradation(
+        snr_db=s.snr_db,
+        frames=s.frames,
+        lost_frames=s.lost_frames,
+        clipped_samples=s.clipped_samples,
+    )
+
+
 def build_report(
     scenario: Scenario,
     result: CallResult,
@@ -81,6 +97,7 @@ def build_report(
     run_id: str,
     agent_url: str,
     preset: str,
+    line: CallerLine | None = None,
 ) -> Report:
     count = len(scenario.turns)
     starts = [float(e["t_ms"]) for e in events if e["kind"] == "caller_turn_start"]
@@ -139,6 +156,7 @@ def build_report(
                 loose_wer=loose_wer(turn.reference, text) if scored else None,
                 agent_text=" ".join(agent_text[index]),
                 agent_ttfb_ms=list(agent_ttfb[index]),
+                degradation=_degradation(line, index) if reached else None,
             )
         )
     wer = conversation_wer([t.reference for t in scenario.turns], transcripts)
@@ -153,7 +171,7 @@ def build_report(
         scenario_title=scenario.title,
         language=scenario.language,
         preset=preset,
-        seed=None,
+        seed=None if line is None else line.seed,
         agent_url=redact_url(agent_url),
         agent_info=result.agent_info,
         status=result.status,

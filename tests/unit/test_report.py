@@ -6,6 +6,7 @@ from parakh.report.model import (
     LatencyStatsModel,
     Metrics,
     Report,
+    TurnDegradation,
     TurnReport,
     load_report,
     write_report_json,
@@ -130,3 +131,19 @@ def test_number_formats():
     html = render_html(make_report())
     assert "12.5%" in html
     assert "850 ms" in html
+
+
+def test_degradation_and_seed_shown():
+    report = make_report().model_copy(update={"seed": 1234, "preset": "bad_line"})
+    deg = TurnDegradation(snr_db=5.04, frames=30, lost_frames=2, clipped_samples=17)
+    report.turns[0] = report.turns[0].model_copy(update={"degradation": deg})
+    html = render_html(report)
+    assert "seed 1234" in html
+    assert "line: SNR 5.0 dB (at mixing), lost 2/30 frames, clipped 17 samples" in html
+
+
+def test_m1_turn_without_degradation_loads():
+    data = make_report().model_dump(mode="json")
+    del data["turns"][0]["degradation"]
+    assert Report.model_validate(data).turns[0].degradation is None
+    assert "line: SNR" not in render_html(make_report())

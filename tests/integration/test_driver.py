@@ -11,13 +11,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from parakh.audio import SPEECH_DBFS, read_wav, speech_end_ms, write_wav
+from parakh.audio import SPEECH_DBFS, dbfs, read_wav, speech_end_ms, write_wav
 from parakh.caller import driver
 from parakh.caller.driver import CallResult, run_call
+from parakh.caller.line import CallerLine, build_line
 from parakh.caller.recorder import read_events
 from parakh.scenario import CallerVoice, Limits, Scenario, Turn
 from parakh.score.latency import response_latencies
-from parakh.tts.cache import CallerClip
+from parakh.tts.cache import CallerClip, TTSCache
+from tests.fakes import FakeEngine
 from tests.integration.fake_agent import FakeBehaviour, fake_agent
 
 pytestmark = pytest.mark.integration
@@ -38,6 +40,18 @@ def _write_clips(clip_dir: Path, n: int) -> list[CallerClip]:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         clips.append(CallerClip(i, path, rate, speech_end_ms(pcm, rate), CLIP_MS, digest))
     return clips
+
+
+async def _line(
+    base: Path,
+    clips: list[CallerClip],
+    scenario: Scenario,
+    preset: str = "clean",
+    rate: int = 16000,
+) -> CallerLine:
+    """The caller line for clips, as run_scenario builds it."""
+    cache = TTSCache(base / "cache")
+    return await build_line(scenario, clips, preset, rate, cache=cache, engine=FakeEngine())
 
 
 def _scenario(
@@ -66,12 +80,14 @@ async def _call(
     call_timeout_s: float = 20.0,
     max_turns: int = 12,
     agent_rate: int = 16000,
+    preset: str = "clean",
 ) -> tuple[CallResult, list[dict[str, Any]]]:
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", turns)
     scenario = _scenario(turns, agent_speaks_first, call_timeout_s, max_turns)
+    line = await _line(base, clips, scenario, preset, agent_rate)
     async with fake_agent(behaviour) as url:
-        result = await run_call(url, scenario, clips, base / "run", agent_rate=agent_rate)
+        result = await run_call(url, scenario, line, base / "run")
     return result, read_events(result.run_dir)
 
 
@@ -178,7 +194,9 @@ async def test_unreachable(tmp_path: Path) -> None:
     url = f"ws://127.0.0.1:{port}"
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", 1)
-    result = await run_call(url, _scenario(1, True, 20.0), clips, base / "run")
+    scenario = _scenario(1, True, 20.0)
+    line = await _line(base, clips, scenario)
+    result = await run_call(url, scenario, line, base / "run")
     assert result.status == "agent_unreachable"
     assert any(url in w for w in result.warnings)
     _assert_ends_with_call_end(read_events(result.run_dir), "agent_unreachable")
@@ -315,8 +333,10 @@ async def test_speech_end_logged_on_its_frame(tmp_path: Path) -> None:
     write_wav(path, pcm, rate)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     clip = CallerClip(0, path, rate, 400, 600, digest)
+    scenario = _scenario(1, True, 20.0)
+    line = await _line(base, [clip], scenario)
     async with fake_agent(FakeBehaviour()) as url:
-        result = await run_call(url, _scenario(1, True, 20.0), [clip], base / "run")
+        result = await run_call(url, scenario, line, base / "run")
     events = read_events(result.run_dir)
     speech_end = _kinds(events, "caller_speech_end")[0]
     frame20 = [e for e in _kinds(events, "caller_frame") if e["turn"] == 0 and e["frame"] == 20]
@@ -336,3 +356,50 @@ async def test_8khz_wire_call(tmp_path: Path) -> None:
         assert x.latency_ms is not None
         assert abs(x.latency_ms - 500) <= TOL_MS
     assert read_wav(result.run_dir / "caller.wav")[1] == 16000
+
+
+async def test_phone_preset_latency(tmp_path: Path) -> None:
+    result, events = await _call(
+        tmp_path, FakeBehaviour(reply_delay_ms=500), turns=2, preset="phone"
+    )
+    assert result.status == "completed"
+    latencies = response_latencies(events)
+    assert len(latencies) == 2
+    for x in latencies:
+        assert x.latency_ms is not None
+        assert abs(x.latency_ms - 500) <= TOL_MS
+
+
+async def test_noise_preset_call_completes(tmp_path: Path) -> None:
+    # The FakeEngine babble is a steady tone bed. The fake's own threshold sits between
+    # the bed and the quietest speech frame, so it hears the speech and not the bed.
+    base = tmp_path / "dir with space"
+    clips = _write_clips(base / "clips", 2)
+    scenario = _scenario(2, True, 20.0)
+    line = await _line(base, clips, scenario, "phone_noisy")
+    bed_level = dbfs(np.concatenate(line.bed))
+    speech = [dbfs(f) for t in line.turns for f in t.frames[: max(1, t.speech_end_frame - 1)]]
+    quietest = min(speech)
+    assert quietest > bed_level
+    behaviour = FakeBehaviour(vad_dbfs=(bed_level + quietest) / 2)
+    async with fake_agent(behaviour) as url:
+        result = await run_call(url, scenario, line, base / "run")
+    assert result.status == "completed"
+    assert result.turns_started == 2
+    events = read_events(result.run_dir)
+    assert any(e["turn"] is None for e in _kinds(events, "caller_frame"))
+
+
+async def test_lossy_preset_logs_lost_frames(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    clips = _write_clips(base / "clips", 2)
+    scenario = _scenario(2, True, 20.0)
+    line = await _line(base, clips, scenario, "phone_lossy")
+    async with fake_agent(FakeBehaviour()) as url:
+        result = await run_call(url, scenario, line, base / "run")
+    assert result.status == "completed"
+    frames = _kinds(read_events(result.run_dir), "caller_frame")
+    assert frames
+    for e in frames:
+        flags = line.bed_lost if e["turn"] is None else line.turns[e["turn"]].lost
+        assert e["lost"] is flags[e["frame"]]

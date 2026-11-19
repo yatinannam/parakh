@@ -34,7 +34,7 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 </head>
 <body>
 <h1>{{ r.scenario_title }}</h1>
-<p class="muted">{{ r.scenario_id }} / {{ r.language }} / preset {{ r.preset }} / {{ r.created_at }}</p>
+<p class="muted">{{ r.scenario_id }} / {{ r.language }} / preset {{ r.preset }}{% if r.seed is not none %} / seed {{ r.seed }}{% endif %} / {{ r.created_at }}</p>
 {% if r.timing_unreliable %}
 <p class="warn">Timing is unreliable for this run.</p>
 {% endif %}
@@ -88,6 +88,9 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 <div class="turn">
 <p><strong>Turn {{ t.index + 1 }}</strong>
  <span class="muted">latency {{ t.latency_ms | ms }}{% if t.latency_reason %} ({{ t.latency_reason }}){% endif %}, strict WER {{ t.strict_wer | pct }}, loose WER {{ t.loose_wer | pct }}</span></p>
+{% if t.degradation %}
+<p class="muted">line: SNR {{ "n/a" if t.degradation.snr_db is none else "%.1f"|format(t.degradation.snr_db) }} dB (at mixing), lost {{ t.degradation.lost_frames }}/{{ t.degradation.frames }} frames, clipped {{ t.degradation.clipped_samples }} samples</p>
+{% endif %}
 <p>Said: {{ t.say }}</p>
 <p>Reference: {{ t.reference }}</p>
 <p>Heard: {% for word, miss in item.words %}{% if miss %}<mark class="miss">{{ word }}</mark>{% else %}{{ word }}{% endif %}{% if not loop.last %} {% endif %}{% else %}<span class="muted">n/a</span>{% endfor %}</p>
