@@ -186,10 +186,11 @@ def degrade_command(
         rng = part_rng(seed, "turn-0")
         noise = None
         if spec.noise is not None and track is not None:
+            piece = noise_slice(track, len(pcm), rng)
             gain = noise_scale(
-                [peak_normalise(pcm.astype(np.float64))], track, SAMPLE_RATE, spec.noise.snr_db
+                [peak_normalise(pcm.astype(np.float64))], piece, SAMPLE_RATE, spec.noise.snr_db
             )
-            noise = gain * noise_slice(track, len(pcm), rng)
+            noise = gain * piece
         result = degrade_clip(pcm, SAMPLE_RATE, spec, out_rate=rate, noise=noise, rng=rng)
         target = out if out is not None else clip.with_name(f"{clip.stem}.{preset}.wav")
         write_wav(target, result.pcm, rate)

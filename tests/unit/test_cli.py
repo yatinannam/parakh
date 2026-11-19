@@ -1,4 +1,3 @@
-import re
 import shutil
 import subprocess
 import sys
@@ -259,8 +258,4 @@ def test_degrade_snr_uses_peak_normalised_clip(tmp_path):
     clip = _tone_wav(base / "quiet.wav", amp=500.0)
     result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
     assert result.exit_code == 0, result.output
-    # The slice of pink noise is not exactly the track's RMS, so allow 1 dB around the 5 dB
-    # preset; scaling from the raw clip would print about 38 dB.
-    match = re.search(r"snr (\d+\.\d) dB, lost frames", result.stdout)
-    assert match is not None, result.stdout
-    assert 4.0 <= float(match.group(1)) <= 6.0
+    assert "snr 5.0 dB, lost frames" in result.stdout
