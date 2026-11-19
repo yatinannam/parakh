@@ -34,11 +34,11 @@ def test_decode_matches_ffmpeg_for_every_code() -> None:
 
 
 def _sqnr_db(level_dbfs: float) -> float:
-    # 1 kHz at 8 kHz repeats only 8 phases, so a zero-phase sine lands on
-    # unlucky grid points (34.9 dB); a fixed 0.3 rad offset is representative.
+    # 997 Hz is the standard non-commensurate test tone: at 8 kHz its samples
+    # sweep all phases, so the SQNR measures the codec, not a few grid points.
     t = np.arange(8000) / 8000.0
     amp = 32768 * 10 ** (level_dbfs / 20)
-    x = np.round(amp * np.sin(2 * np.pi * 1000 * t + 0.3)).astype(np.int16)
+    x = np.round(amp * np.sin(2 * np.pi * 997 * t)).astype(np.int16)
     y = mulaw_decode(mulaw_encode(x))
     sig = np.mean(x.astype(np.float64) ** 2)
     err = np.mean((x.astype(np.float64) - y.astype(np.float64)) ** 2)
