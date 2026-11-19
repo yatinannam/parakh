@@ -19,6 +19,7 @@ dependencies = [
     "jiwer>=4.0",
     "indic-transliteration>=2.3.80",
     "websockets>=15",
+    "loguru>=0.7",
     "pipecat-ai==1.16.0",
     "jinja2>=3.1",
     "psutil>=6",

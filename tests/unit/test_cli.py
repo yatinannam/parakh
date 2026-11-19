@@ -1,4 +1,6 @@
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -138,3 +140,10 @@ def test_run_undecodable_audio_exit_2_without_run_dir(
     assert result.output.startswith("run failed: RuntimeError: ")
     assert len(result.output.strip().splitlines()) == 1
     assert not runs.exists()
+
+
+def test_importing_cli_prints_no_pipecat_banner() -> None:
+    proc = subprocess.run(
+        [sys.executable, "-c", "import parakh.cli"], capture_output=True, text=True, check=False
+    )
+    assert "Pipecat" not in proc.stdout + proc.stderr

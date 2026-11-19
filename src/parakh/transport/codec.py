@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from google.protobuf.message import DecodeError
-from pipecat.frames.protobufs import frames_pb2
+from loguru import logger
+
+# Pipecat logs a banner through loguru when it is imported. Silence it here, before the
+# first Pipecat import; the clinic agent imports parakh and keeps Pipecat's logs.
+logger.disable("pipecat")
+
+from pipecat.frames.protobufs import frames_pb2  # noqa: E402
 
 # Generated protobuf classes are created dynamically, so pyright cannot see them.
 Frame: Any = frames_pb2.Frame  # type: ignore[attr-defined]
@@ -16,6 +22,8 @@ BOT_STOPPED = "bot-stopped-speaking"
 BOT_STARTED = "bot-started-speaking"
 BOT_OUTPUT = "bot-output"
 METRICS = "metrics"
+USER_STARTED = "user-started-speaking"
+USER_STOPPED = "user-stopped-speaking"
 ERROR = "error"  # RTVI error: data {"error": str, "fatal": bool}
 
 
@@ -68,6 +76,8 @@ def encode_audio(pcm: bytes, sample_rate: int, num_channels: int = 1) -> bytes:
 def _parse_message(text: str) -> RtviMessage:
     try:
         obj = json.loads(text)
+    except RecursionError as exc:
+        raise ProtocolError("agent sent a message nested too deeply to parse") from exc
     except ValueError:
         return RtviMessage(type="", data={}, raw=text)
     if not isinstance(obj, dict):
@@ -116,20 +126,26 @@ def caller_transcript(msg: RtviMessage) -> tuple[str, bool] | None:
 
 
 class RtviRepeats:
-    """Spots RTVI messages that repeat one already received, so each is recorded once.
+    """Spots messages that repeat one already received, so each is recorded once.
 
     Pipecat 1.13 and later send every transcription twice: as user-input and as its
     deprecated twin user-transcription, with the same text, final flag and timestamp.
-    They report every spoken bot-output segment at least twice under one segment_id:
-    when it starts ("new") and once it is spoken ("completed", with "in-progress"
-    between them for TTS services with word timestamps). The first message counts.
+    A protobuf TranscriptionFrame is a third source of the same transcript. A transcript
+    is a twin only of the transcript just before it, from a different source or type,
+    with an equal (text, final, timestamp); the pair is then consumed, so the next one
+    is never a twin of either. They report every spoken bot-output segment at least
+    twice under one segment_id: when it starts ("new") and once it is spoken
+    ("completed", with "in-progress" between them for TTS services with word
+    timestamps). The first message counts.
     """
 
     def __init__(self) -> None:
         self._segments: set[int | str] = set()
         self._last_transcript: tuple[str, tuple[object, ...]] | None = None
 
-    def is_repeat(self, msg: RtviMessage) -> bool:
+    def is_repeat(self, msg: RtviMessage | AgentTranscription) -> bool:
+        if isinstance(msg, AgentTranscription):
+            return self._transcript_repeat("transcription", (msg.text, True, msg.timestamp))
         if msg.type == BOT_OUTPUT:
             segment = msg.data.get("segment_id")
             if isinstance(segment, bool) or not isinstance(segment, int | str):
@@ -142,8 +158,15 @@ class RtviRepeats:
             return False
         data = msg.data
         key = (data.get("text"), data.get("final") is True, data.get("timestamp"))
-        last, self._last_transcript = self._last_transcript, (msg.type, key)
-        return last is not None and last[0] != msg.type and last[1] == key
+        return self._transcript_repeat(msg.type, key)
+
+    def _transcript_repeat(self, source: str, key: tuple[object, ...]) -> bool:
+        last = self._last_transcript
+        if last is not None and last[0] != source and last[1] == key:
+            self._last_transcript = None
+            return True
+        self._last_transcript = (source, key)
+        return False
 
 
 def agent_info(msg: RtviMessage) -> dict[str, Any] | None:

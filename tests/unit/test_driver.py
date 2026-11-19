@@ -1,5 +1,6 @@
 """Driver logic that needs no socket: agent audio checks, URL checks, bot-stopped handling."""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from parakh.caller import driver
 from parakh.caller.recorder import Recorder, read_events
 from parakh.caller.turns import TurnState
 from parakh.scenario import CallerVoice, Limits, Scenario, Turn
-from parakh.transport.codec import BOT_STOPPED, AgentAudio, ProtocolError, RtviMessage
+from parakh.transport.codec import BOT_STOPPED, AgentAudio, AgentText, RtviMessage
 from parakh.transport.ws import AgentConnection
 
 T0 = 1_000_000_000
@@ -29,24 +30,6 @@ def _scenario(limits: Limits | None = None) -> Scenario:
         turns=[Turn(say="haan")],
         limits=limits or Limits(),
     )
-
-
-@pytest.mark.parametrize(
-    ("audio", "match"),
-    [
-        (AgentAudio(b"\x00\x00" * 4, 0, 1), "sample rate"),
-        (AgentAudio(b"\x00\x00" * 4, 16000, 2), "channel"),
-        (AgentAudio(b"\x00\x00\x00", 16000, 1), "odd"),
-    ],
-)
-def test_malformed_agent_audio_is_protocol_error(audio: AgentAudio, match: str) -> None:
-    with pytest.raises(ProtocolError, match=match):
-        driver.agent_pcm(audio)
-
-
-def test_unset_channel_count_is_mono() -> None:
-    pcm = driver.agent_pcm(AgentAudio(b"\x01\x00\x02\x00", 16000, 0))
-    assert pcm.tolist() == [1, 2]
 
 
 async def test_non_ws_url_rejected_before_anything_is_written(tmp_path: Path) -> None:
@@ -153,3 +136,39 @@ def test_rtvi_error_becomes_a_warning_in_the_report(tmp_path: Path) -> None:
     assert [e["message"] for e in events if e["kind"] == "warning"] == expected
     assert not [e for e in events if e["kind"] == "rtvi_unknown"]
     assert "SECRET" not in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
+class _FakeConn:
+    """Duck-typed connection whose recv() never suspends."""
+
+    def __init__(self, count: int) -> None:
+        self._left = count
+
+    async def recv(self) -> AgentText | None:
+        if self._left == 0:
+            return None
+        self._left -= 1
+        return AgentText("hi")
+
+
+async def test_receive_yields_between_messages(tmp_path: Path) -> None:
+    clip = driver._Clip([np.zeros(320, dtype=np.int16)] * 20, 19)
+    rec = Recorder(tmp_path / "dir with space" / "run", T0)
+    ticks = 0
+    stop = False
+
+    async def counter() -> None:
+        nonlocal ticks
+        while not stop:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    try:
+        call = driver._Call(_scenario(), [clip], rec, T0, 16000, 800)
+        task = asyncio.create_task(counter())
+        await call._receive(_FakeConn(200))  # type: ignore[arg-type]
+        stop = True
+        await task
+    finally:
+        rec.close()
+    assert ticks >= 100

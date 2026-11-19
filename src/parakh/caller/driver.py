@@ -38,28 +38,18 @@ from parakh.audio import (
     split_frames,
 )
 from parakh.caller.clock import PlaybackClock
+from parakh.caller.events import agent_pcm, map_event
 from parakh.caller.pacer import JitterStats, Pacer
 from parakh.caller.recorder import Recorder
 from parakh.caller.turns import Action, TurnMachine, TurnState
 from parakh.scenario import Scenario
 from parakh.transport.codec import (
-    BOT_OUTPUT,
-    BOT_STARTED,
-    BOT_STOPPED,
-    ERROR,
-    METRICS,
     AgentAudio,
     AgentEvent,
-    AgentInterruption,
-    AgentText,
-    AgentTranscription,
     ProtocolError,
-    RtviMessage,
     RtviRepeats,
-    agent_info,
-    caller_transcript,
 )
-from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url, redact_urls
+from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url
 from parakh.tts.cache import CallerClip
 
 CallStatus = Literal[
@@ -92,18 +82,6 @@ class CallResult:
     warnings: list[str]
 
 
-def agent_pcm(audio: AgentAudio) -> PCM:
-    """Mono int16 samples of an agent audio frame; ProtocolError if it is malformed."""
-    if audio.sample_rate <= 0:
-        raise ProtocolError(f"agent sent audio with sample rate {audio.sample_rate}")
-    # 0 means the field was left unset; Pipecat's default is mono.
-    if audio.num_channels not in (0, 1):
-        raise ProtocolError(f"agent sent {audio.num_channels}-channel audio; expected mono")
-    if len(audio.pcm) % 2:
-        raise ProtocolError("agent sent 16-bit audio with an odd number of bytes")
-    return np.frombuffer(audio.pcm, dtype="<i2").astype(np.int16)
-
-
 @dataclass(frozen=True)
 class _Clip:
     frames: list[PCM]
@@ -116,14 +94,6 @@ def _load_clip(clip: CallerClip, rate: int) -> _Clip:
     if not frames:
         frames = [np.zeros(rate * FRAME_MS // 1000, dtype=np.int16)]
     return _Clip(frames, min(len(frames) - 1, clip.speech_end_ms // FRAME_MS))
-
-
-def _agent_error(msg: RtviMessage) -> str:
-    """Warning text for an RTVI error message, with any URL in it redacted (EC-82)."""
-    text = msg.data.get("error")
-    detail = redact_urls(text) if isinstance(text, str) and text.strip() else "(no message)"
-    fatal = " (fatal)" if msg.data.get("fatal") is True else ""
-    return f"agent error{fatal}: {detail}"
 
 
 class _Call:
@@ -295,6 +265,7 @@ class _Call:
         try:
             while (event := await conn.recv()) is not None:
                 self._on_event(event, time.perf_counter_ns())
+                await asyncio.sleep(0)  # let the pacer run even when events arrive in a burst
         except ProtocolError as exc:
             self._end("protocol_error", str(exc))
             return
@@ -310,17 +281,18 @@ class _Call:
     def _on_event(self, event: AgentEvent, now: int) -> None:
         if self.status is not None:
             return
-        match event:
-            case AgentAudio():
-                self._on_audio(event, now)
-            case AgentText():
-                self._event("bot_output", now, text=event.text)
-            case AgentTranscription():
-                self._event("caller_transcript", now, text=event.text, final=True)
-            case AgentInterruption():
-                self._event("agent_interruption", now)
-            case RtviMessage():
-                self._on_rtvi(event, now)
+        if isinstance(event, AgentAudio):
+            self._on_audio(event, now)
+            return
+        mapped = map_event(event, self._repeats)
+        if mapped.warning is not None:
+            self._warn(mapped.warning, now)
+        if mapped.kind is not None:
+            self._event(mapped.kind, now, **mapped.fields)
+        if mapped.agent_info is not None:
+            self.agent_info = mapped.agent_info
+        if mapped.bot_stopped:
+            self._bot_stopped = True
 
     def _on_audio(self, audio: AgentAudio, now: int) -> None:
         pcm = agent_pcm(audio)
@@ -329,33 +301,6 @@ class _Call:
             self._reply_heard = self._reply_heard or loud
         start = self._clock.on_audio(now, len(pcm), audio.sample_rate, loud=loud)
         self._rec.agent_frame(now, pcm, audio.sample_rate, self._ms(start))
-
-    def _on_rtvi(self, msg: RtviMessage, now: int) -> None:
-        if self._repeats.is_repeat(msg):
-            self._event("rtvi_repeat", now, type=msg.type)
-            return
-        transcript = caller_transcript(msg)
-        info = agent_info(msg)
-        if transcript is not None:
-            text, final = transcript
-            self._event("caller_transcript", now, text=text, final=final)
-        elif info is not None:
-            self.agent_info = info
-            self._event("agent_info", now, info=info)
-        elif msg.type == BOT_STARTED:
-            self._event("bot_started", now)
-        elif msg.type == BOT_STOPPED:
-            self._bot_stopped = True
-            self._event("bot_stopped", now)
-        elif msg.type == BOT_OUTPUT:
-            text = msg.data.get("text")
-            self._event("bot_output", now, text=text if isinstance(text, str) else "")
-        elif msg.type == METRICS:
-            self._event("agent_metrics", now, data=msg.data)
-        elif msg.type == ERROR:
-            self._warn(_agent_error(msg), now)
-        else:
-            self._event("rtvi_unknown", now, type=msg.type)
 
     def result(self, run_dir: Path) -> CallResult:
         assert self.status is not None, "result() before the call ended"

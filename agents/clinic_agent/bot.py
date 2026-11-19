@@ -1,5 +1,7 @@
 """Pipecat pipeline for the Parakh Clinic test agent."""
 
+import importlib.metadata
+
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import InterruptionWorkerFrame, LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -29,7 +31,7 @@ from agents.clinic_agent.tools import BookingStore, tool_schemas
 from agents.clinic_agent.tts_edge import EdgeTTSService
 from parakh.tts.engine import EdgeTTSEngine
 
-PIPECAT_VERSION = "1.16.0"
+PIPECAT_VERSION = importlib.metadata.version("pipecat-ai")
 
 
 def build_task(

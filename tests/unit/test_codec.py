@@ -177,3 +177,33 @@ def test_bot_output_without_a_usable_segment_id_is_never_a_repeat() -> None:
     assert not repeats.is_repeat(_bot_output(True, "new"))
     assert not repeats.is_repeat(_bot_output(True, "completed"))
     assert not repeats.is_repeat(_rtvi({"type": "bot-started-speaking"}))
+
+
+def test_deeply_nested_json_is_protocol_error() -> None:
+    frame = Frame()
+    frame.message.data = "[" * 100_000
+    with pytest.raises(ProtocolError):
+        decode_frame(frame.SerializeToString())
+
+
+def test_repeated_haan_without_timestamps_is_kept() -> None:
+    repeats = RtviRepeats()
+
+    def msg(kind: str) -> RtviMessage:
+        data: dict = {"text": "haan", "final": True}
+        if kind == "user-input":
+            data["input_type"] = "transcription"
+        return _rtvi({"type": kind, "data": data})
+
+    got = [
+        repeats.is_repeat(msg(k))
+        for k in ("user-input", "user-transcription", "user-input", "user-transcription")
+    ]
+    assert got == [False, True, False, True]
+
+
+def test_protobuf_transcription_twin_of_rtvi_is_repeat() -> None:
+    repeats = RtviRepeats()
+    stamp = "2026-11-19T10:00:01"
+    assert not repeats.is_repeat(AgentTranscription("haan", "u", stamp))
+    assert repeats.is_repeat(_transcript("user-input", "haan", stamp))

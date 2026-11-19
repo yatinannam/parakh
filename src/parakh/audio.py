@@ -13,6 +13,8 @@ from scipy.signal import resample_poly
 
 SAMPLE_RATE = 16000
 FRAME_MS = 20
+# Sample rates accepted for agent audio and for --agent-rate.
+SUPPORTED_RATES: tuple[int, ...] = (8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000)
 SILENCE_DBFS = -120.0
 SPEECH_DBFS = -45.0
 _WINDOW_MS = 10

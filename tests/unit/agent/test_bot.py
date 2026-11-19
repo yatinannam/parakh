@@ -1,3 +1,4 @@
+import importlib.metadata
 import warnings
 from types import SimpleNamespace
 from typing import Any
@@ -192,3 +193,7 @@ def test_metrics_enabled_so_the_report_shows_agent_ttfb() -> None:
     # TTFB in RTVI metrics only with enable_metrics; the first live run had none.
     task, _transport = bot.build_task(load_config(), "test-key")
     assert task.params.enable_metrics is True
+
+
+def test_pipecat_version_reads_package_metadata() -> None:
+    assert bot.PIPECAT_VERSION == importlib.metadata.version("pipecat-ai") == "1.16.0"
