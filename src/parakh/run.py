@@ -1,15 +1,20 @@
 """One scored run: synthesize caller audio, drive the call, score, write the reports."""
 
 import asyncio
+import contextlib
 import math
 import secrets
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import parakh
 from parakh import __version__
+from parakh.audio import SUPPORTED_RATES
 from parakh.caller.driver import CallResult, run_call
+from parakh.caller.pacer import JitterStats
 from parakh.caller.recorder import read_events
 from parakh.report.html import write_report_html
 from parakh.report.model import (
@@ -42,15 +47,28 @@ def exit_code(report: Report) -> int:
     return 1 if report.status == "agent_hung_up_early" else 2
 
 
+def _installed_from_repo() -> bool:
+    """True when parakh was imported from this checkout's src directory."""
+    try:
+        Path(parakh.__file__).resolve().relative_to((_REPO_ROOT / "src").resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def _git_sha() -> str | None:
+    """Short sha of the checkout parakh runs from; None for an installed copy or a git failure."""
+    if not (_REPO_ROOT / ".git").exists() or not _installed_from_repo():
+        return None
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=_REPO_ROOT,
             capture_output=True,
             check=False,
+            timeout=5,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     sha = result.stdout.decode("utf-8", "replace").strip()
     return sha if result.returncode == 0 and sha else None
@@ -192,23 +210,36 @@ async def run_scenario(
     agent_rate: int = 16000,
     engine: TTSEngine | None = None,
     cache_dir: Path = DEFAULT_CACHE_ROOT,
+    on_start: Callable[[Path], None] | None = None,
 ) -> tuple[Report, Path]:
     """Run one scenario against an agent; always write report.json and report.html.
 
-    Raises ValueError (unknown preset, bad agent URL), ScenarioError and FfmpegMissing
-    before anything is written to runs_dir.
+    Raises ValueError (unknown preset, bad agent URL, unsupported agent_rate),
+    ScenarioError and FfmpegMissing before anything is written to runs_dir.
+    on_start is called once with the run directory just before the call starts.
+    On Ctrl+C a partial report is written (status "interrupted") and the interrupt
+    is re-raised.
     """
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset!r}; available: {', '.join(PRESETS)}")
+    if agent_rate not in SUPPORTED_RATES:
+        rates = ", ".join(str(r) for r in SUPPORTED_RATES)
+        raise ValueError(f"agent_rate {agent_rate} is not supported; use one of: {rates}")
     check_agent_url(agent_url)
     scenario = load_scenario(scenario_path)
     require_ffmpeg()
-    clips, _ = await build_scenario_audio(
-        scenario, TTSCache(cache_dir), engine if engine is not None else EdgeTTSEngine()
-    )
     run_id = secrets.token_hex(4)
     run_dir = runs_dir / run_id
     try:
+        clips, _ = await build_scenario_audio(
+            scenario, TTSCache(cache_dir), engine if engine is not None else EdgeTTSEngine()
+        )
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        _write_interrupted(scenario, run_id, run_dir, agent_url, preset)
+        raise
+    try:
+        if on_start is not None:
+            on_start(run_dir)
         result = await run_call(agent_url, scenario, clips, run_dir, agent_rate=agent_rate)
         report = _build_report(
             scenario,
@@ -219,7 +250,7 @@ async def run_scenario(
             preset=preset,
         )
     except (KeyboardInterrupt, asyncio.CancelledError):
-        _write(_fallback_report(scenario, run_id, agent_url, preset, "interrupted", []), run_dir)
+        _write_interrupted(scenario, run_id, run_dir, agent_url, preset)
         raise
     except Exception as exc:
         status = "protocol_error" if isinstance(exc, ProtocolError) else "internal_error"
@@ -228,6 +259,49 @@ async def run_scenario(
         report = _fallback_report(scenario, run_id, agent_url, preset, status, [warning])
     _write(report, run_dir)
     return report, run_dir
+
+
+INTERRUPT_WARNING = "interrupted by the user"
+
+
+def _interrupted_report(
+    scenario: Scenario, run_id: str, run_dir: Path, agent_url: str, preset: str
+) -> Report:
+    """Partial report from the events recorded so far; the minimal fallback without any."""
+    try:
+        events = read_events(run_dir)
+    except (OSError, ValueError):
+        events = []
+    if not events:
+        return _fallback_report(
+            scenario, run_id, agent_url, preset, "interrupted", [INTERRUPT_WARNING]
+        )
+    infos = [
+        e["info"] for e in events if e["kind"] == "agent_info" and isinstance(e.get("info"), dict)
+    ]
+    warnings = [str(e["message"]) for e in events if e["kind"] == "warning" and "message" in e]
+    starts = sum(1 for e in events if e["kind"] == "caller_turn_start")
+    stand_in = CallResult(
+        status="interrupted",
+        run_dir=run_dir,
+        turns_started=starts,
+        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        timing_unreliable=False,
+        cpu_max_percent=0.0,
+        agent_info=infos[-1] if infos else {},
+        warnings=[*warnings, INTERRUPT_WARNING],
+    )
+    return _build_report(
+        scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset
+    )
+
+
+def _write_interrupted(
+    scenario: Scenario, run_id: str, run_dir: Path, agent_url: str, preset: str
+) -> None:
+    """Write the partial report; a failure here must never mask the interrupt."""
+    with contextlib.suppress(Exception):
+        _write(_interrupted_report(scenario, run_id, run_dir, agent_url, preset), run_dir)
 
 
 def _write(report: Report, run_dir: Path) -> None:

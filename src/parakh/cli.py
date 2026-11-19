@@ -123,7 +123,7 @@ def run(
 ) -> None:
     """Run one scenario against an agent and write report.json and report.html."""
     try:
-        result, run_dir = asyncio.run(
+        result, _run_dir = asyncio.run(
             run_scenario(
                 scenario,
                 agent,
@@ -132,15 +132,19 @@ def run(
                 agent_rate=agent_rate,
                 engine=make_engine(),
                 cache_dir=cache_dir,
+                on_start=lambda run_dir: typer.echo(f"run dir: {run_dir}"),
             )
         )
+    except KeyboardInterrupt:
+        # Click's default "Aborted!" exits 1, which would read as a failed task.
+        typer.echo("interrupted", err=True)
+        raise typer.Exit(2) from None
     except (ValueError, ScenarioError, FfmpegMissing) as exc:
         raise _fail(str(exc)) from exc
     # RuntimeError: ffmpeg could not decode the synthesised caller audio.
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
         raise _fail(f"run failed: {_describe(exc)}") from exc
     latency = result.metrics.latency
-    typer.echo(f"run dir: {run_dir}")
     typer.echo(f"status: {result.status}")
     if result.status == "agent_unreachable":
         typer.echo(f"could not connect to {_endpoint(agent)}")

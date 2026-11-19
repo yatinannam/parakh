@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -147,3 +148,28 @@ def test_importing_cli_prints_no_pipecat_banner() -> None:
         [sys.executable, "-c", "import parakh.cli"], capture_output=True, text=True, check=False
     )
     assert "Pipecat" not in proc.stdout + proc.stderr
+
+
+def test_run_prints_run_dir_at_start_and_exits_2_on_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = tmp_path / "dir with space" / "abc123"
+
+    async def fake_run_scenario(*_a: object, on_start: Callable[[Path], None], **_k: object):
+        on_start(run_dir)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(cli, "run_scenario", fake_run_scenario)
+    args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 2, result.output
+    assert result.output.count("run dir:") == 1
+    assert result.output.index("run dir:") < result.output.index("interrupted")
+
+
+def test_run_rejects_unsupported_agent_rate(tmp_path: Path) -> None:
+    args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
+    result = CliRunner().invoke(app, [*args, "--agent-rate", "12345"])
+    _assert_clean_exit_2(result)
+    assert "agent_rate" in result.output

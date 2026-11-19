@@ -62,6 +62,7 @@ CallStatus = Literal[
     "agent_hung_up_early",  # socket closed before the first caller turn
     "agent_unreachable",  # the WebSocket could not be opened
     "protocol_error",  # the agent sent something that is not a valid Pipecat frame
+    "interrupted",  # Ctrl+C; only the run layer builds a result with this status
 ]
 
 CPU_WARN_PERCENT = 85.0

@@ -1,3 +1,4 @@
+import json
 import math
 import subprocess
 from pathlib import Path
@@ -5,13 +6,15 @@ from typing import Any
 
 import pytest
 
+from parakh import run as run_module
 from parakh.caller.driver import CallResult
 from parakh.caller.pacer import JitterStats
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
-from parakh.run import _build_report, _git_sha, _ttfb_ms, exit_code
+from parakh.run import _build_report, _git_sha, _ttfb_ms, exit_code, run_scenario
 from parakh.scenario import Scenario
 from parakh.score.wer import NO_TRANSCRIPT_REASON
 from parakh.transport.ws import redact_url, redact_urls
+from tests.fakes import FakeEngine
 
 
 def test_ttfb_ms_converts_and_skips_malformed():
@@ -187,3 +190,165 @@ def test_redact_urls_in_free_text():
     text = "failed: https://u:pw@api.example/v1/x?key=SECRET and ws://h:1/p#frag, done"
     assert redact_urls(text) == "failed: https://api.example/v1/x and ws://h:1/p, done"
     assert redact_urls("no url here") == "no url here"
+
+
+_SCENARIO_YAML = """\
+schema_version: 1
+id: run-int-01
+title: Interrupt
+language: en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+caller:
+  voice: v
+turns:
+  - say: "one two"
+  - say: "three four"
+"""
+
+
+def _setup(tmp_path: Path) -> tuple[Path, Path, Path]:
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    scenario = base / "s.yaml"
+    scenario.write_text(_SCENARIO_YAML, encoding="utf-8")
+    return scenario, base / "runs", base / "cache"
+
+
+def _write_events(run_dir: Path, events: list[dict[str, Any]]) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(e) for e in events]
+    (run_dir / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+async def _interrupted(scenario: Path, runs: Path, cache: Path) -> None:
+    await run_scenario(
+        scenario, "ws://127.0.0.1:1", runs_dir=runs, engine=FakeEngine(), cache_dir=cache
+    )
+
+
+async def test_interrupt_writes_partial_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    scenario, runs, cache = _setup(tmp_path)
+
+    async def fake_run_call(_url: str, _scn: Scenario, _clips: Any, run_dir: Path, **_k: Any):
+        _write_events(
+            run_dir,
+            [
+                {"kind": "call_start", "t_ms": 0.0},
+                {"kind": "agent_info", "t_ms": 1.0, "info": {"name": "bot"}},
+                {"kind": "warning", "t_ms": 2.0, "message": "cpu high"},
+                {"kind": "caller_turn_start", "t_ms": 100.0, "turn": 0},
+                {"kind": "caller_speech_end", "t_ms": 600.0, "turn": 0},
+                {"kind": "agent_audio", "t_ms": 900.0, "dbfs": -10.0, "duration_ms": 20},
+                {"kind": "caller_transcript", "t_ms": 1000.0, "text": "one two", "final": True},
+            ],
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    with pytest.raises(KeyboardInterrupt):
+        await _interrupted(scenario, runs, cache)
+    (run_dir,) = list(runs.iterdir())
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["status"] == "interrupted"
+    assert data["turns"][0]["transcript"] == "one two"
+    assert data["turns"][0]["latency_ms"] is not None
+    assert data["turns"][1]["latency_reason"] == "turn not reached"
+    assert data["agent_info"] == {"name": "bot"}
+    assert data["warnings"] == ["cpu high", "interrupted by the user"]
+    assert (run_dir / "report.html").exists()
+
+
+async def test_interrupt_before_events_writes_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    scenario, runs, cache = _setup(tmp_path)
+
+    async def fake_run_call(*_a: Any, **_k: Any):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    with pytest.raises(KeyboardInterrupt):
+        await _interrupted(scenario, runs, cache)
+    (run_dir,) = list(runs.iterdir())
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["status"] == "interrupted"
+    assert data["warnings"] == ["interrupted by the user"]
+
+
+async def test_interrupt_survives_report_write_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    scenario, runs, cache = _setup(tmp_path)
+
+    async def fake_run_call(*_a: Any, **_k: Any):
+        raise KeyboardInterrupt
+
+    def bad_write(*_a: Any, **_k: Any):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    monkeypatch.setattr(run_module, "_write", bad_write)
+    with pytest.raises(KeyboardInterrupt):
+        await _interrupted(scenario, runs, cache)
+
+
+async def test_on_start_called_once_with_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    scenario, runs, cache = _setup(tmp_path)
+    seen: list[Path] = []
+
+    async def fake_run_call(_url: str, _scn: Scenario, _clips: Any, run_dir: Path, **_k: Any):
+        assert seen == [run_dir]
+        _write_events(run_dir, [{"kind": "call_start", "t_ms": 0.0}])
+        jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+        return CallResult("completed", run_dir, 0, jitter, False, 0.0, {}, [])
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    _report_obj, run_dir = await run_scenario(
+        scenario,
+        "ws://127.0.0.1:1",
+        runs_dir=runs,
+        engine=FakeEngine(),
+        cache_dir=cache,
+        on_start=seen.append,
+    )
+    assert seen == [run_dir]
+
+
+def test_git_sha_none_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    root = tmp_path / "no git here"
+    root.mkdir()
+    monkeypatch.setattr(run_module, "_REPO_ROOT", root)
+
+    def boom(*_a: Any, **_k: Any):
+        raise AssertionError("git must not run outside a repo")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert _git_sha() is None
+
+
+def test_git_sha_none_on_timeout(monkeypatch: pytest.MonkeyPatch):
+    seen: dict[str, Any] = {}
+
+    def slow(*_a: Any, **kwargs: Any):
+        seen.update(kwargs)
+        raise subprocess.TimeoutExpired("git", 5)
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    monkeypatch.setattr(run_module, "_installed_from_repo", lambda: True)
+    assert _git_sha() is None
+    assert seen["timeout"] == 5
+
+
+async def test_unsupported_agent_rate_rejected(tmp_path: Path):
+    scenario, runs, cache = _setup(tmp_path)
+    with pytest.raises(ValueError, match="agent_rate"):
+        await run_scenario(
+            scenario,
+            "ws://127.0.0.1:1",
+            runs_dir=runs,
+            agent_rate=16001,
+            engine=FakeEngine(),
+            cache_dir=cache,
+        )
+    assert not runs.exists() or not list(runs.iterdir())
