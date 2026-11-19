@@ -418,9 +418,8 @@ async def test_lossy_preset_logs_lost_frames(tmp_path: Path) -> None:
 
 
 async def _barge_call(tmp_path: Path, **behaviour: Any) -> tuple[CallResult, list[dict[str, Any]]]:
-    return await _call(
-        tmp_path, FakeBehaviour(reply_ms=3000, **behaviour), turns=2, barge_in={1: 1200}
-    )
+    behaviour = {"reply_ms": 3000, **behaviour}
+    return await _call(tmp_path, FakeBehaviour(**behaviour), turns=2, barge_in={1: 1200})
 
 
 async def test_barge_in_agent_yields_with_interruption(tmp_path: Path) -> None:
@@ -458,11 +457,17 @@ async def test_barge_in_burst_reply_is_flushed(tmp_path: Path) -> None:
 
 
 async def test_barge_in_agent_never_yields(tmp_path: Path) -> None:
-    result, events = await _barge_call(tmp_path, burst=False)
+    # The reply outlasts the barge by 2300 ms, so the old reply alone covers the window
+    # below; the next reply only starts about 900 ms after the barge.
+    result, events = await _barge_call(tmp_path, burst=False, reply_ms=3500)
     assert result.status == "completed"
     (barge,) = _kinds(events, "barge_in")
     assert not _kinds(events, "agent_interruption")
-    assert _loud_between(result.run_dir / "agent.wav", barge["t_ms"], barge["t_ms"] + 2000)
+    for k in range(17):
+        start = barge["t_ms"] + 100 * k
+        assert _loud_between(result.run_dir / "agent.wav", start, start + 100), (
+            f"quiet at +{100 * k}"
+        )
 
 
 async def test_barge_in_missed_short_reply(tmp_path: Path) -> None:
