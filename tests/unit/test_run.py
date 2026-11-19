@@ -9,8 +9,10 @@ import pytest
 from parakh import run as run_module
 from parakh.caller.driver import CallResult
 from parakh.caller.pacer import JitterStats
+from parakh.report import build as build_module
+from parakh.report.build import _git_sha, _ttfb_ms, build_report
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
-from parakh.run import _build_report, _git_sha, _ttfb_ms, exit_code, run_scenario
+from parakh.run import exit_code, run_scenario
 from parakh.scenario import Scenario
 from parakh.score.wer import NO_TRANSCRIPT_REASON
 from parakh.transport.ws import redact_url, redact_urls
@@ -124,7 +126,7 @@ def test_greeting_items_are_dropped_not_given_to_turn_0():
         {"kind": "agent_metrics", "t_ms": 1510.0, "data": {"ttfb": [{"value": 0.2}]}},
         {"kind": "caller_turn_start", "t_ms": 3000.0, "turn": 1},
     ]
-    report = _build_report(scenario, result, events, run_id="r", agent_url="ws://h", preset="clean")
+    report = build_report(scenario, result, events, run_id="r", agent_url="ws://h", preset="clean")
     assert report.turns[0].agent_text == "reply one"
     assert report.turns[0].agent_ttfb_ms == [200.0]
     assert report.turns[1].agent_text == ""
@@ -153,7 +155,7 @@ def _three_turn_scenario() -> Scenario:
 def _wer_report(events: list[dict[str, Any]]) -> Report:
     jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
     result = CallResult("turn_timeout", Path("."), 2, jitter, False, 0.0, {}, [])
-    return _build_report(
+    return build_report(
         _three_turn_scenario(), result, events, run_id="r", agent_url="ws://h", preset="clean"
     )
 
@@ -318,7 +320,7 @@ async def test_on_start_called_once_with_run_dir(tmp_path: Path, monkeypatch: py
 def test_git_sha_none_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root = tmp_path / "no git here"
     root.mkdir()
-    monkeypatch.setattr(run_module, "_REPO_ROOT", root)
+    monkeypatch.setattr(build_module, "_REPO_ROOT", root)
 
     def boom(*_a: Any, **_k: Any):
         raise AssertionError("git must not run outside a repo")
@@ -335,7 +337,7 @@ def test_git_sha_none_on_timeout(monkeypatch: pytest.MonkeyPatch):
         raise subprocess.TimeoutExpired("git", 5)
 
     monkeypatch.setattr(subprocess, "run", slow)
-    monkeypatch.setattr(run_module, "_installed_from_repo", lambda: True)
+    monkeypatch.setattr(build_module, "_installed_from_repo", lambda: True)
     assert _git_sha() is None
     assert seen["timeout"] == 5
 

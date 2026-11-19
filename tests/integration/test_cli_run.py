@@ -216,7 +216,7 @@ def test_run_scoring_failure_still_writes_report(
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("scoring blew up")
 
-    monkeypatch.setattr("parakh.run.response_latencies", boom)
+    monkeypatch.setattr("parakh.report.build.response_latencies", boom)
     with background_agent(FakeBehaviour()) as url:
         result, runs = _invoke(tmp_path, url)
     assert result.exit_code == 2, result.output
