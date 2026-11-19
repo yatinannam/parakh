@@ -24,6 +24,8 @@ def band_limit(x: F64, rate: int) -> F64:
     No edge padding: odd extension of a loud out-of-band edge leaks a
     transient into the pass band, and speech clips start and end quiet.
     """
+    if x.size == 0:
+        return x.copy()
     sos = butter(_ORDER, BAND_HZ, btype="bandpass", fs=rate, output="sos")
     return np.asarray(sosfiltfilt(sos, x, padlen=0), dtype=np.float64)
 

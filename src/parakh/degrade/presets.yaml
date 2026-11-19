@@ -1,0 +1,34 @@
+# Degradation presets, in comparison order. Each adds one factor to the last.
+presets:
+  - name: clean
+  - name: phone
+    telephone: true
+  - name: phone_noisy
+    telephone: true
+    noise: {kind: babble, snr_db: 10.0}
+  - name: phone_lossy
+    telephone: true
+    loss: {rate: 0.03}
+  - name: bad_line
+    telephone: true
+    noise: {kind: pink, snr_db: 5.0}
+    loss: {rate: 0.05, mean_burst_frames: 3.0}
+    clip_dbfs: -10.0
+
+# Synthetic babble: six talkers speaking unrelated, invented sentences.
+babble:
+  talkers:
+    - voice: hi-IN-SwaraNeural
+      text: Aaj subah ki local train bahut late thi, isliye platform par kaafi bheed ho gayi aur sab log bar bar ghadi dekh rahe the.
+    - voice: hi-IN-MadhurNeural
+      text: Mausam aaj achha hai, halki hawa chal rahi hai, lekin shaam tak baarish ho sakti hai toh chhata saath le jaana.
+    - voice: en-IN-NeerjaNeural
+      text: The cricket match yesterday was very exciting, and the last over was so tense that everyone in the room stopped talking for a moment.
+    - voice: en-IN-PrabhatNeural
+      text: I have been standing in this bank queue for almost half an hour and the counter still has not called the next token.
+    - voice: hi-IN-SwaraNeural
+      rate: "+10%"
+      text: Sabzi wale bhaiya se tamatar aur pyaz liye, phir doodh aur bread bhi kharida, kaafi saaman ho gaya tha thaila bhari tha.
+    - voice: hi-IN-MadhurNeural
+      rate: "+10%"
+      text: School bus aaj thodi der se aayi, bachche gate par intezaar kar rahe the aur driver ne sabko jaldi se andar bithaya.
