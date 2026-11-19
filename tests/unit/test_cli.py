@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import sys
@@ -203,7 +204,7 @@ def test_degrade_writes_wav(tmp_path):
     assert rate == 16000
     assert abs(frames - 16000) <= 320
     assert f"wrote {out}" in result.stdout
-    assert "snr n/a dB, lost frames 0/" in result.stdout
+    assert "snr n/a, lost frames 0/" in result.stdout
 
 
 def test_degrade_rate_option(tmp_path):
@@ -250,3 +251,16 @@ def test_degrade_babble_uses_engine(tmp_path, monkeypatch):
     assert engine.calls == 6
     assert "snr " in result.stdout
     assert "snr n/a" not in result.stdout
+
+
+def test_degrade_snr_uses_peak_normalised_clip(tmp_path):
+    # A quiet clip: scaling noise from the raw clip would not give the preset's 5 dB.
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "quiet.wav", amp=500.0)
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
+    assert result.exit_code == 0, result.output
+    # The slice of pink noise is not exactly the track's RMS, so allow 1 dB around the 5 dB
+    # preset; scaling from the raw clip would print about 38 dB.
+    match = re.search(r"snr (\d+\.\d) dB, lost frames", result.stdout)
+    assert match is not None, result.stdout
+    assert 4.0 <= float(match.group(1)) <= 6.0

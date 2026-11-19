@@ -198,11 +198,11 @@ def degrade_command(
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
         raise _fail(f"degrade failed: {_describe(exc)}") from exc
     stats = result.stats
-    snr = "n/a" if stats is None or stats.snr_db is None else f"{stats.snr_db:.1f}"
+    snr = "n/a" if stats is None or stats.snr_db is None else f"{stats.snr_db:.1f} dB"
     lost, frames = (0, len(result.lost)) if stats is None else (stats.lost_frames, stats.frames)
     clipped = 0 if stats is None else stats.clipped_samples
     typer.echo(f"wrote {target}")
-    typer.echo(f"snr {snr} dB, lost frames {lost}/{frames}, clipped samples {clipped}")
+    typer.echo(f"snr {snr}, lost frames {lost}/{frames}, clipped samples {clipped}")
 
 
 @app.command()
