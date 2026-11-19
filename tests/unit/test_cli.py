@@ -173,3 +173,80 @@ def test_run_rejects_unsupported_agent_rate(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, [*args, "--agent-rate", "12345"])
     _assert_clean_exit_2(result)
     assert "agent_rate" in result.output
+
+
+def _tone_wav(path: Path, seconds: float = 1.0, rate: int = 16000, amp: float = 8000.0) -> Path:
+    import numpy as np
+
+    from parakh.audio import write_wav
+
+    t = np.arange(int(seconds * rate)) / rate
+    write_wav(path, (amp * np.sin(2 * np.pi * 300 * t)).astype(np.int16), rate)
+    return path
+
+
+def _wav_info(path: Path) -> tuple[int, int]:
+    import wave
+
+    with wave.open(str(path), "rb") as wf:
+        return wf.getframerate(), wf.getnframes()
+
+
+def test_degrade_writes_wav(tmp_path):
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav")
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "phone"])
+    assert result.exit_code == 0, result.output
+    out = base / "in.phone.wav"
+    assert out.is_file()
+    rate, frames = _wav_info(out)
+    assert rate == 16000
+    assert abs(frames - 16000) <= 320
+    assert f"wrote {out}" in result.stdout
+    assert "snr n/a dB, lost frames 0/" in result.stdout
+
+
+def test_degrade_rate_option(tmp_path):
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav")
+    out = base / "o.wav"
+    result = CliRunner().invoke(
+        app, ["degrade", str(clip), "--preset", "phone", "--rate", "8000", "--out", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    assert _wav_info(out)[0] == 8000
+
+
+def test_degrade_unknown_preset_exits_2(tmp_path):
+    clip = _tone_wav(tmp_path / "dir with space" / "in.wav")
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "nope"])
+    assert result.exit_code == 2
+    assert "unknown preset" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_degrade_silent_clip_with_noise_exits_2(tmp_path):
+    import numpy as np
+
+    from parakh.audio import write_wav
+
+    clip = tmp_path / "dir with space" / "silent.wav"
+    write_wav(clip, np.zeros(16000, dtype=np.int16), 16000)
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
+    assert result.exit_code == 2
+    assert "SNR" in result.stderr
+
+
+def test_degrade_babble_uses_engine(tmp_path, monkeypatch):
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav")
+    engine = FakeEngine()
+    monkeypatch.setattr(cli, "make_engine", lambda: engine)
+    result = CliRunner().invoke(
+        app,
+        ["degrade", str(clip), "--preset", "phone_noisy", "--cache-dir", str(base / "cache")],
+    )
+    assert result.exit_code == 0, result.output
+    assert engine.calls == 6
+    assert "snr " in result.stdout
+    assert "snr n/a" not in result.stdout

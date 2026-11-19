@@ -1,17 +1,26 @@
 """Command-line entry point for Parakh."""
 
 import asyncio
+import wave
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
 import aiohttp
+import numpy as np
 import typer
 from edge_tts.exceptions import EdgeTTSException
 
 from parakh import __version__
+from parakh.audio import SAMPLE_RATE, SUPPORTED_RATES, read_wav, resample, write_wav
 from parakh.budget.estimate import GROQ_LLM_ASSUMED, GROQ_STT_LIMITS, estimate
 from parakh.console import configure_console
+from parakh.degrade.chain import degrade as degrade_clip
+from parakh.degrade.filters import peak_normalise
+from parakh.degrade.noise import DegradeError, noise_scale, noise_slice
+from parakh.degrade.presets import get_preset
+from parakh.degrade.seeds import part_rng
+from parakh.degrade.track import noise_track
 from parakh.report.html import write_report_html
 from parakh.report.model import load_report
 from parakh.run import exit_code, run_scenario
@@ -153,6 +162,47 @@ def run(
     if result.timing_unreliable:
         typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
     raise typer.Exit(exit_code(result))
+
+
+@app.command("degrade")
+def degrade_command(
+    clip: Annotated[Path, typer.Argument(help="16-bit mono WAV to degrade.")],
+    preset: Annotated[str, typer.Option(help="Degradation preset.")],
+    out: Annotated[Path | None, typer.Option(help="Output WAV path.")] = None,
+    rate: Annotated[int, typer.Option(help="Output sample rate.")] = 16000,
+    seed: Annotated[int, typer.Option(help="Call seed.")] = 0,
+    cache_dir: Annotated[Path, typer.Option(help="TTS cache directory.")] = DEFAULT_CACHE_ROOT,
+) -> None:
+    """Degrade one WAV with a preset and write the result."""
+    try:
+        spec = get_preset(preset)
+        if rate not in SUPPORTED_RATES:
+            raise ValueError(f"--rate {rate} is not supported; use one of {SUPPORTED_RATES}")
+        pcm, src_rate = read_wav(clip)
+        if src_rate not in SUPPORTED_RATES:
+            raise ValueError(f"{clip} has unsupported sample rate {src_rate}")
+        pcm = resample(pcm, src_rate, SAMPLE_RATE)
+        track = asyncio.run(noise_track(spec, seed, TTSCache(cache_dir), make_engine()))
+        rng = part_rng(seed, "turn-0")
+        noise = None
+        if spec.noise is not None and track is not None:
+            gain = noise_scale(
+                [peak_normalise(pcm.astype(np.float64))], track, SAMPLE_RATE, spec.noise.snr_db
+            )
+            noise = gain * noise_slice(track, len(pcm), rng)
+        result = degrade_clip(pcm, SAMPLE_RATE, spec, out_rate=rate, noise=noise, rng=rng)
+        target = out if out is not None else clip.with_name(f"{clip.stem}.{preset}.wav")
+        write_wav(target, result.pcm, rate)
+    except (ValueError, FfmpegMissing, wave.Error, DegradeError) as exc:
+        raise _fail(str(exc)) from exc
+    except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
+        raise _fail(f"degrade failed: {_describe(exc)}") from exc
+    stats = result.stats
+    snr = "n/a" if stats is None or stats.snr_db is None else f"{stats.snr_db:.1f}"
+    lost, frames = (0, len(result.lost)) if stats is None else (stats.lost_frames, stats.frames)
+    clipped = 0 if stats is None else stats.clipped_samples
+    typer.echo(f"wrote {target}")
+    typer.echo(f"snr {snr} dB, lost frames {lost}/{frames}, clipped samples {clipped}")
 
 
 @app.command()
