@@ -7,6 +7,7 @@
 | [`superpowers/specs/2026-11-15-parakh-design.md`](superpowers/specs/2026-11-15-parakh-design.md) | Full design: architecture, components, testing, CI, milestones, edge-case register, decisions. |
 | [`superpowers/plans/2026-11-15-m0-foundations.md`](superpowers/plans/2026-11-15-m0-foundations.md) | M0 plan: repo hygiene, tools, CI, Task 1 run. Later milestones add one plan each to [`superpowers/plans/`](superpowers/plans/). |
 | [`superpowers/plans/2026-11-16-m1-mvp.md`](superpowers/plans/2026-11-16-m1-mvp.md) | M1 plan: scenario, caller TTS, call driver, latency, script-tolerant WER, report, CLI, clinic test agent. |
+| [`superpowers/plans/2026-11-19-m2-degradation.md`](superpowers/plans/2026-11-19-m2-degradation.md) | M2 plan: M1 review fixes first, then the degrader and five presets, the caller line, barge-in and stop latency, batch runs and the comparison page. |
 | [`research/2026-11-15-calibrate-analysis.md`](research/2026-11-15-calibrate-analysis.md) | Task 1: what Calibrate covers and lacks, the free-model run, and the verdict. |
 | [`research/2026-11-15-free-tier-and-platform-notes.md`](research/2026-11-15-free-tier-and-platform-notes.md) | Free-tier limits, data policies, Windows wheel checks, licences. |
 | [`research/2026-11-16-pipecat-evals-note.md`](research/2026-11-16-pipecat-evals-note.md) | `pipecat.evals` in Pipecat 1.16: what it does, what it needs from the bot, what it lacks for Parakh, and decision D14. |
