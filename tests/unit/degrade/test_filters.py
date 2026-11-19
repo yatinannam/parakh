@@ -48,10 +48,24 @@ def test_band_limit_passes_voice_band() -> None:
 
 
 def test_band_limit_keeps_timing() -> None:
-    x = np.concatenate([np.zeros(3200), _sine(1000, 16000, 0.4, 8000.0)])
+    # Silence on both sides, so the speech end is not the array end.
+    tone = _sine(1000, 16000, 0.4, 8000.0)
+    x = np.concatenate([np.zeros(3200), tone, np.zeros(3200)])
     y = np.round(band_limit(x, 16000)).astype(np.int16)
-    ref = speech_end_ms(np.round(x).astype(np.int16), 16000)
-    assert abs(speech_end_ms(y, 16000) - ref) <= 10
+    ref = np.round(x).astype(np.int16)
+    assert abs(speech_end_ms(y, 16000) - speech_end_ms(ref, 16000)) <= 10
+    # Speech start: the end of the reversed signal is len - start.
+    assert abs(speech_end_ms(y[::-1].copy(), 16000) - speech_end_ms(ref[::-1].copy(), 16000)) <= 10
+
+
+def test_band_limit_has_zero_lag() -> None:
+    # A causal filter delays a burst near the 300 Hz edge by ~19 samples (1.2 ms),
+    # too small for the 10 ms speech-end check, so assert the lag directly.
+    burst = _sine(400, 16000, 0.2, 8000.0) * np.hanning(3200)
+    x = np.concatenate([np.zeros(3200), burst, np.zeros(3200)])
+    y = band_limit(x, 16000)
+    lag = int(np.argmax(np.correlate(y, x, "full"))) - (len(x) - 1)
+    assert lag == 0
 
 
 def test_telephone_suppresses_aliasing() -> None:
