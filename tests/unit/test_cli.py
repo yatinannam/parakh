@@ -8,8 +8,11 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from parakh import __version__, cli
+from parakh import run as run_module
 from parakh.cli import app
-from tests.fakes import FakeEngine
+from parakh.degrade.presets import PRESET_ORDER
+from parakh.report.model import write_report_json
+from tests.fakes import FakeEngine, make_report
 
 
 def test_version_prints_package_version():
@@ -160,7 +163,7 @@ def test_run_prints_run_dir_at_start_and_exits_2_on_interrupt(
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
-    monkeypatch.setattr(cli, "run_scenario", fake_run_scenario)
+    monkeypatch.setattr(run_module, "run_scenario", fake_run_scenario)
     args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 2, result.output
@@ -259,3 +262,101 @@ def test_degrade_snr_uses_peak_normalised_clip(tmp_path):
     result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
     assert result.exit_code == 0, result.output
     assert "snr 5.0 dB, lost frames" in result.stdout
+
+
+def _fake_runs(monkeypatch: pytest.MonkeyPatch, statuses: list[str]) -> list[str]:
+    seen: list[str] = []
+    codes = iter(statuses)
+
+    async def fake(_path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: object):
+        seen.append(preset)
+        report = make_report(preset=preset, status=next(codes), run_id=f"r{len(seen)}")
+        return report, runs_dir / f"r{len(seen)}"
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    return seen
+
+
+def _run_args(tmp_path: Path, *presets: str) -> list[str]:
+    args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
+    for name in presets:
+        args += ["--preset", name]
+    return [*args, "--runs-dir", str(tmp_path / "dir with space" / "r")]
+
+
+def test_preset_all_expands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _fake_runs(monkeypatch, ["completed"] * len(PRESET_ORDER))
+    result = CliRunner().invoke(app, _run_args(tmp_path, "all"))
+    assert result.exit_code == 0, result.output
+    assert seen == list(PRESET_ORDER)
+    assert "comparison:" in result.output
+
+
+def test_batch_exit_code_is_highest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_runs(monkeypatch, ["completed", "agent_unreachable", "agent_hung_up_early"])
+    result = CliRunner().invoke(app, _run_args(tmp_path, "clean", "phone", "bad_line"))
+    assert result.exit_code == 2, result.output
+
+
+def test_single_run_prints_no_comparison(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_runs(monkeypatch, ["completed"])
+    result = CliRunner().invoke(app, _run_args(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert "comparison:" not in result.output
+
+
+def test_run_accepts_a_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _fake_runs(monkeypatch, ["completed"])
+    scenario = _scenario_file(tmp_path)
+    args = _run_args(tmp_path)
+    args[1] = str(scenario.parent)
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert seen == ["clean"]
+
+
+def test_run_unknown_preset_exits_2(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, _run_args(tmp_path, "telephone"))
+    _assert_clean_exit_2(result)
+
+
+def _run_dir_with_report(base: Path, run_id: str, preset: str) -> Path:
+    run_dir = base / run_id
+    run_dir.mkdir(parents=True)
+    write_report_json(make_report(run_id=run_id, preset=preset), run_dir / "report.json")
+    return run_dir
+
+
+def test_compare_command(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space" / "runs"
+    first = _run_dir_with_report(base, "aaaa1111", "clean")
+    second = _run_dir_with_report(base, "bbbb2222", "phone")
+    out = tmp_path / "dir with space" / "out"
+    result = CliRunner().invoke(app, ["compare", str(first), str(second), "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    assert (out / "compare.html").exists()
+    assert (out / "compare.json").exists()
+    default = CliRunner().invoke(app, ["compare", str(first), str(second)])
+    assert default.exit_code == 0, default.output
+    assert (base / "compare.html").exists()
+
+
+def test_compare_command_bad_report_exits_2(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space" / "runs"
+    good = _run_dir_with_report(base, "aaaa1111", "clean")
+    bad = base / "bbbb2222"
+    bad.mkdir()
+    (bad / "report.json").write_text("{not json", encoding="utf-8")
+    result = CliRunner().invoke(app, ["compare", str(good), str(bad)])
+    _assert_clean_exit_2(result)
+    assert "cannot read report.json" in result.output
+
+
+def test_budget_prints_presets() -> None:
+    example = Path(__file__).parents[2] / "scenarios" / "hinglish" / "clinic-book-hinglish-01.yaml"
+    result = CliRunner().invoke(app, ["budget", str(example), "--preset", "all"])
+    assert "presets: 5" in result.output
+    assert (
+        "noise presets can add STT requests when the agent's VAD reacts to noise" in result.output
+    )

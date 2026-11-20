@@ -11,12 +11,12 @@ from parakh.caller.driver import CallResult
 from parakh.caller.pacer import JitterStats
 from parakh.report import build as build_module
 from parakh.report.build import _git_sha, _ttfb_ms, build_report
-from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
-from parakh.run import exit_code, run_scenario
+from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report, write_report_json
+from parakh.run import exit_code, run_batch, run_scenario
 from parakh.scenario import Scenario
 from parakh.score.wer import NO_TRANSCRIPT_REASON
 from parakh.transport.ws import redact_url, redact_urls
-from tests.fakes import FakeEngine
+from tests.fakes import FakeEngine, make_report
 
 
 def test_ttfb_ms_converts_and_skips_malformed():
@@ -354,3 +354,93 @@ async def test_unsupported_agent_rate_rejected(tmp_path: Path):
             cache_dir=cache,
         )
     assert not runs.exists() or not list(runs.iterdir())
+
+
+# Batch runs: run_scenario is replaced by a recorder that returns fixture reports.
+
+
+def _batch_fake(
+    monkeypatch: pytest.MonkeyPatch, statuses: list[str] | None = None, interrupt_at: int = -1
+) -> list[tuple[str, str, Path]]:
+    calls: list[tuple[str, str, Path]] = []
+
+    async def fake(path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: Any):
+        n = len(calls)
+        calls.append((path.stem, preset, runs_dir))
+        status = statuses[n] if statuses else "completed"
+        report = make_report(scenario_id=path.stem, preset=preset, status=status, run_id=f"r{n}")
+        run_dir = runs_dir / f"r{n}"
+        run_dir.mkdir(parents=True)
+        if n == interrupt_at:
+            report = make_report(scenario_id=path.stem, preset=preset, status="interrupted")
+            write_report_json(report, run_dir / "report.json")
+            raise KeyboardInterrupt
+        write_report_json(report, run_dir / "report.json")
+        return report, run_dir
+
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    return calls
+
+
+async def _batch(tmp_path: Path, presets: list[str], names: tuple[str, ...] = ("s1", "s2")):
+    base = tmp_path / "dir with space"
+    base.mkdir(exist_ok=True)
+    return await run_batch(
+        [base / f"{n}.yaml" for n in names],
+        "ws://127.0.0.1:1",
+        presets,
+        runs_dir=base / "runs",
+        agent_rate=16000,
+        engine=FakeEngine(),
+        cache_dir=base / "cache",
+    )
+
+
+async def test_batch_runs_presets_back_to_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls = _batch_fake(monkeypatch)
+    results, batch_dir = await _batch(tmp_path, ["clean", "phone"])
+    assert [(s, p) for s, p, _ in calls] == [
+        ("s1", "clean"),
+        ("s1", "phone"),
+        ("s2", "clean"),
+        ("s2", "phone"),
+    ]
+    assert batch_dir is not None
+    assert all(d == batch_dir for _, _, d in calls)
+    assert len(batch_dir.name) == 8
+    assert (batch_dir / "compare.html").exists()
+    assert (batch_dir / "compare.json").exists()
+    assert len(results) == 4
+
+
+async def test_single_run_has_no_batch_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls = _batch_fake(monkeypatch)
+    results, batch_dir = await _batch(tmp_path, ["clean"], names=("s1",))
+    assert batch_dir is None
+    assert calls[0][2] == tmp_path / "dir with space" / "runs"
+    assert len(results) == 1
+    assert not list((tmp_path / "dir with space" / "runs").glob("compare.*"))
+
+
+async def test_batch_continues_after_failed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls = _batch_fake(monkeypatch, statuses=["completed", "agent_unreachable", "completed"])
+    results, batch_dir = await _batch(tmp_path, ["clean", "phone", "bad_line"], names=("s1",))
+    assert len(calls) == 3
+    assert batch_dir is not None
+    rows = json.loads((batch_dir / "compare.json").read_text(encoding="utf-8"))["rows"]
+    assert len(rows) == 3
+    assert "agent_unreachable" in [r["status"] for r in rows]
+    assert [r.status for r, _ in results] == ["completed", "agent_unreachable", "completed"]
+
+
+async def test_batch_interrupt_writes_compare_for_finished_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls = _batch_fake(monkeypatch, interrupt_at=1)
+    with pytest.raises(KeyboardInterrupt):
+        await _batch(tmp_path, ["clean", "phone"])
+    assert len(calls) == 2
+    batch_dir = calls[0][2]
+    rows = json.loads((batch_dir / "compare.json").read_text(encoding="utf-8"))["rows"]
+    assert sorted(r["status"] for r in rows) == ["completed", "interrupted"]
+    assert (batch_dir / "compare.html").exists()

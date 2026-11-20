@@ -6,6 +6,7 @@ from parakh.degrade.presets import (
     PRESET_ORDER,
     NoiseSpec,
     Preset,
+    expand_presets,
     get_preset,
     load_presets,
     load_talkers,
@@ -60,3 +61,15 @@ def test_six_talkers() -> None:
 def test_presets_yaml_ships_in_wheel() -> None:
     # hatchling ships every file under src/parakh; this proves the loader's access path.
     assert files("parakh.degrade").joinpath("presets.yaml").is_file()
+
+
+def test_expand_presets_all_dedupes_and_keeps_order():
+    assert expand_presets(["all"]) == list(PRESET_ORDER)
+    assert expand_presets(["phone", "clean", "phone"]) == ["phone", "clean"]
+    assert expand_presets(["phone", "all"])[0] == "phone"
+    assert len(expand_presets(["phone", "all"])) == len(PRESET_ORDER)
+
+
+def test_expand_presets_unknown_raises():
+    with pytest.raises(ValueError, match="unknown preset"):
+        expand_presets(["clean", "telephone"])

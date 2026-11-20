@@ -8,6 +8,9 @@ GROQ_STT_LIMITS = {"rpm": 20, "rpd": 2000, "audio_s_per_hour": 7200}
 # Assumed, not read from Groq: check the console for the real limits.
 GROQ_LLM_ASSUMED = {"rpm": 30, "rpd": 1000}
 _SECONDS_PER_WORD = 0.4
+# Observed per caller turn in the M1 runs (the agent's VAD can split one turn into several).
+STT_PER_TURN = 3
+LLM_PER_TURN = 3
 
 
 @dataclass
@@ -20,18 +23,25 @@ class Estimate:
     notes: list[str] = field(default_factory=list)
 
 
-def estimate(scenarios: list[Scenario], clip_seconds: list[float] | None = None) -> Estimate:
-    """STT calls = caller turns; LLM calls = caller turns, plus 1 if the agent speaks first.
+def estimate(
+    scenarios: list[Scenario], clip_seconds: list[float] | None = None, presets: int = 1
+) -> Estimate:
+    """STT calls = 3 per caller turn; LLM calls = 3 per turn, plus 1 if the agent speaks first.
+
+    Everything is multiplied by presets (one run per scenario per preset).
 
     Audio seconds come from clip_seconds when given, else 0.4 s per word of `say`.
     The audio limit is compared with the whole batch, as if it ran within one hour.
     """
-    stt = sum(len(s.turns) for s in scenarios)
-    llm = stt + sum(1 for s in scenarios if s.agent_speaks_first)
+    turns = sum(len(s.turns) for s in scenarios)
+    stt = STT_PER_TURN * turns * presets
+    greetings = sum(1 for s in scenarios if s.agent_speaks_first)
+    llm = (LLM_PER_TURN * turns + greetings) * presets
     if clip_seconds is not None:
         audio = float(sum(clip_seconds))
     else:
         audio = _SECONDS_PER_WORD * sum(len(t.say.split()) for s in scenarios for t in s.turns)
+    audio *= presets
     notes: list[str] = []
     if stt > GROQ_STT_LIMITS["rpd"]:
         notes.append(f"rpd: {stt} STT calls > {GROQ_STT_LIMITS['rpd']}")

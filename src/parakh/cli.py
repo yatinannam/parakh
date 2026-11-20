@@ -18,12 +18,13 @@ from parakh.console import configure_console
 from parakh.degrade.chain import degrade as degrade_clip
 from parakh.degrade.filters import peak_normalise
 from parakh.degrade.noise import DegradeError, noise_scale, noise_slice
-from parakh.degrade.presets import get_preset
+from parakh.degrade.presets import expand_presets, get_preset
 from parakh.degrade.seeds import part_rng
 from parakh.degrade.track import noise_track
+from parakh.report.compare import build_comparison, write_comparison
 from parakh.report.html import write_report_html
-from parakh.report.model import load_report
-from parakh.run import exit_code, run_scenario
+from parakh.report.model import Report, load_report
+from parakh.run import exit_code, run_batch
 from parakh.scenario import ScenarioError, load_scenario
 from parakh.transport.ws import redact_url
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
@@ -123,20 +124,30 @@ def _ms(value: float | None) -> str:
 
 @app.command()
 def run(
-    scenario: Annotated[Path, typer.Argument(help="Scenario YAML file.")],
+    scenario: Annotated[Path, typer.Argument(help="Scenario YAML file or directory.")],
     agent: Annotated[str, typer.Option(help="Agent WebSocket URL, ws:// or wss://.")],
-    preset: Annotated[str, typer.Option(help="Audio degradation preset.")] = "clean",
+    preset: Annotated[
+        list[str] | None,
+        typer.Option(help="Degradation preset; repeat for several, or `all`. Default: clean."),
+    ] = None,
     runs_dir: Annotated[Path, typer.Option(help="Where run directories go.")] = Path("runs"),
     agent_rate: Annotated[int, typer.Option(help="Sample rate sent to the agent.")] = 16000,
     cache_dir: Annotated[Path, typer.Option(help="TTS cache directory.")] = DEFAULT_CACHE_ROOT,
 ) -> None:
-    """Run one scenario against an agent and write report.json and report.html."""
+    """Run scenarios against an agent and write report.json and report.html per run.
+
+    More than one run (several scenarios or presets) also writes compare.html.
+    """
     try:
-        result, _run_dir = asyncio.run(
-            run_scenario(
-                scenario,
+        presets = expand_presets(preset or ["clean"])
+        files = _scenario_files([scenario])
+        if not files:
+            raise ValueError(f"no scenario files found in {scenario}")
+        results, batch_dir = asyncio.run(
+            run_batch(
+                files,
                 agent,
-                preset=preset,
+                presets,
                 runs_dir=runs_dir,
                 agent_rate=agent_rate,
                 engine=make_engine(),
@@ -153,15 +164,39 @@ def run(
     # RuntimeError: ffmpeg could not decode the synthesised caller audio.
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
         raise _fail(f"run failed: {_describe(exc)}") from exc
-    latency = result.metrics.latency
-    typer.echo(f"status: {result.status}")
-    if result.status == "agent_unreachable":
-        typer.echo(f"could not connect to {_endpoint(agent)}")
-    typer.echo(f"latency p50/p95: {_ms(latency.p50_ms)} / {_ms(latency.p95_ms)} ms")
-    typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
-    if result.timing_unreliable:
-        typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
-    raise typer.Exit(exit_code(result))
+    for result, _run_dir in results:
+        latency = result.metrics.latency
+        if batch_dir is not None:
+            typer.echo(f"{result.scenario_id} / {result.preset}")
+        typer.echo(f"status: {result.status}")
+        if result.status == "agent_unreachable":
+            typer.echo(f"could not connect to {_endpoint(agent)}")
+        typer.echo(f"latency p50/p95: {_ms(latency.p50_ms)} / {_ms(latency.p95_ms)} ms")
+        typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
+        if result.timing_unreliable:
+            typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
+    if batch_dir is not None:
+        typer.echo(f"comparison: {batch_dir / 'compare.html'}")
+    raise typer.Exit(max(exit_code(result) for result, _ in results))
+
+
+@app.command()
+def compare(
+    run_dirs: Annotated[list[Path], typer.Argument(help="Run directories with report.json.")],
+    out: Annotated[
+        Path | None, typer.Option(help="Where compare.html goes (default: parent of the first).")
+    ] = None,
+) -> None:
+    """Build compare.html and compare.json from existing run directories."""
+    runs: list[tuple[Report, Path]] = []
+    for run_dir in run_dirs:
+        try:
+            runs.append((load_report(run_dir / "report.json"), run_dir))
+        # ValueError covers non-UTF-8 text and pydantic's ValidationError.
+        except (OSError, ValueError) as exc:
+            raise _fail(f"cannot read report.json in {run_dir}: {exc}") from exc
+    target = out if out is not None else run_dirs[0].parent
+    typer.echo(str(write_comparison(build_comparison(runs, target), target)))
 
 
 @app.command("degrade")
@@ -223,18 +258,25 @@ def report(
 @app.command()
 def budget(
     paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")],
+    preset: Annotated[
+        list[str] | None,
+        typer.Option(help="Degradation preset; repeat for several, or `all`. Default: clean."),
+    ] = None,
 ) -> None:
     """Estimate Groq free-tier usage for scenarios."""
     try:
+        presets = expand_presets(preset or ["clean"])
         scenarios = [load_scenario(file) for file in _scenario_files(paths)]
-    except ScenarioError as exc:
+    except (ScenarioError, ValueError) as exc:
         raise _fail(str(exc)) from exc
-    est = estimate(scenarios)
+    est = estimate(scenarios, presets=len(presets))
     typer.echo(f"scenarios: {est.scenarios}")
+    typer.echo(f"presets: {len(presets)}")
     typer.echo(f"STT calls: {est.stt_calls} (limits {GROQ_STT_LIMITS})")
     typer.echo(f"LLM calls: {est.llm_calls} (assumed limits {GROQ_LLM_ASSUMED}; check the console)")
     typer.echo(f"audio seconds: {est.audio_seconds:.0f}")
     typer.echo("RPM is not estimated")
+    typer.echo("noise presets can add STT requests when the agent's VAD reacts to noise")
     if est.within_limits:
         typer.echo("within limits")
         return

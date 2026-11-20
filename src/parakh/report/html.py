@@ -7,7 +7,7 @@ from jinja2 import Environment, PackageLoader
 from parakh.report.diff import mark_misses
 from parakh.report.model import Report
 
-_ENV = Environment(
+ENV = Environment(
     loader=PackageLoader("parakh.report", "templates"),
     autoescape=True,
     trim_blocks=True,
@@ -27,8 +27,8 @@ def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%"
 
 
-_ENV.filters["ms"] = _ms
-_ENV.filters["pct"] = _pct
+ENV.filters["ms"] = _ms
+ENV.filters["pct"] = _pct
 
 
 def _chart_bars(report: Report) -> list[dict[str, float | int | str]]:
@@ -51,7 +51,7 @@ def _chart_bars(report: Report) -> list[dict[str, float | int | str]]:
 def render_html(report: Report) -> str:
     turns = [{"turn": t, "words": mark_misses(t.reference, t.transcript)} for t in report.turns]
     width = _BAR_GAP + max(len(report.turns), 1) * (_BAR_W + _BAR_GAP)
-    return _ENV.get_template("report.html.j2").render(
+    return ENV.get_template("report.html.j2").render(
         r=report,
         turns=turns,
         bars=_chart_bars(report),

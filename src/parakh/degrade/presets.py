@@ -1,5 +1,6 @@
 """The packaged degradation presets and babble talkers."""
 
+from collections.abc import Sequence
 from functools import cache
 from importlib.resources import files
 from typing import Any, Literal
@@ -62,3 +63,16 @@ def get_preset(name: str) -> Preset:
 def load_talkers() -> list[Talker]:
     """The babble talkers."""
     return [Talker.model_validate(t) for t in _raw()["babble"]["talkers"]]
+
+
+def expand_presets(names: Sequence[str]) -> list[str]:
+    """Expand `all` to every preset in comparison order; drop duplicates, keep order.
+
+    Raises ValueError for an unknown name.
+    """
+    out: list[str] = []
+    for name in names:
+        for item in PRESET_ORDER if name == "all" else (get_preset(name).name,):
+            if item not in out:
+                out.append(item)
+    return out
