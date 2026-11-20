@@ -1,7 +1,12 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from parakh.caller.driver import CallResult
+from parakh.caller.pacer import JitterStats
+from parakh.report.build import build_report
 from parakh.report.html import render_html, write_report_html
 from parakh.report.model import (
+    BargeInReport,
     JitterModel,
     LatencyStatsModel,
     Metrics,
@@ -11,6 +16,9 @@ from parakh.report.model import (
     load_report,
     write_report_json,
 )
+from parakh.scenario import BargeIn, CallerVoice, Limits, Scenario, Turn
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def make_report(
@@ -147,3 +155,88 @@ def test_m1_turn_without_degradation_loads():
     del data["turns"][0]["degradation"]
     assert Report.model_validate(data).turns[0].degradation is None
     assert "line: SNR" not in render_html(make_report())
+
+
+def test_report_includes_barge_in(tmp_path: Path):
+    scenario = Scenario(
+        schema_version=1,
+        id="s1",
+        title="Booking",
+        language="hi-en",
+        domain="test",
+        clock=datetime(2026, 11, 16, 10, 0, tzinfo=IST),
+        agent_speaks_first=True,
+        caller=CallerVoice(voice="hi-IN-SwaraNeural"),
+        turns=[Turn(say="one"), Turn(say="two", barge_in=BargeIn(after_agent_ms=1200))],
+        limits=Limits(response_timeout_s=1.5, call_timeout_s=20, max_turns=12),
+    )
+    events: list[dict] = [
+        {"kind": "caller_turn_start", "t_ms": 1000.0, "turn": 0},
+        {"kind": "caller_speech_end", "t_ms": 2000.0, "turn": 0},
+        {"kind": "caller_turn_end", "t_ms": 2100.0, "turn": 0},
+        {"kind": "caller_turn_start", "t_ms": 5000.0, "turn": 1},
+        {"kind": "barge_in", "t_ms": 5000.0, "turn": 1, "after_agent_ms": 1200.0},
+        {"kind": "caller_speech_end", "t_ms": 5600.0, "turn": 1},
+        {"kind": "caller_turn_end", "t_ms": 5700.0, "turn": 1},
+        {"kind": "user_started", "t_ms": 9000.0},
+    ]
+    for t in range(2400, 7400, 20):
+        events.append(
+            {
+                "kind": "agent_audio",
+                "t_ms": float(t),
+                "duration_ms": 20.0,
+                "dbfs": -20.0,
+                "sample_rate": 8000,
+                "play_ms": float(t),
+            }
+        )
+    result = CallResult(
+        status="completed",
+        run_dir=tmp_path,
+        turns_started=2,
+        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        timing_unreliable=False,
+        cpu_max_percent=0.0,
+        agent_info={},
+        warnings=[],
+    )
+    report = build_report(scenario, result, events, run_id="r", agent_url="ws://x", preset="clean")
+    assert report.turns[0].barge_in is None
+    barge = report.turns[1].barge_in
+    assert barge is not None
+    assert barge.result == "did_not_yield"
+    assert report.metrics.did_not_yield == 1
+    assert report.metrics.stop_latency is not None
+    assert report.metrics.stop_latency.n == 0
+    assert report.metrics.false_barge_in_ms == [9000.0]
+    html = render_html(report)
+    assert "Barge-in stop latency p50 / p95 / max" in html
+    assert "Did not yield" in html
+    assert "False barge-ins" in html
+    assert "did not yield within 2 s" in html
+
+
+def test_report_shows_stopped_barge_in(tmp_path: Path):
+    report = make_report()
+    barge = BargeInReport(
+        after_agent_ms=1200.0, onset_ms=5000.0, stop_latency_ms=340.0, result="yielded", via="audio"
+    )
+    report.turns[0] = report.turns[0].model_copy(update={"barge_in": barge})
+    stats = LatencyStatsModel(n=1, p50_ms=340.0, p90_ms=340.0, p95_ms=340.0, max_ms=340.0)
+    report = report.model_copy(
+        update={"metrics": report.metrics.model_copy(update={"stop_latency": stats})}
+    )
+    html = render_html(report)
+    assert "barge-in after 1200 ms: stopped in 340 ms (audio)" in html
+    assert "340 ms / 340 ms / 340 ms" in html
+
+
+def test_m1_report_without_barge_in_loads():
+    data = make_report().model_dump(mode="json")
+    del data["turns"][0]["barge_in"]
+    for key in ("stop_latency", "did_not_yield", "false_barge_in_ms"):
+        del data["metrics"][key]
+    loaded = Report.model_validate(data)
+    assert loaded.metrics.stop_latency is None
+    assert "Barge-in stop" not in render_html(loaded)

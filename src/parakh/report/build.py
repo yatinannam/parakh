@@ -13,6 +13,7 @@ from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats
 from parakh.caller.recorder import read_events
 from parakh.report.model import (
+    BargeInReport,
     JitterModel,
     LatencyStatsModel,
     Metrics,
@@ -21,7 +22,8 @@ from parakh.report.model import (
     TurnReport,
 )
 from parakh.scenario import Scenario
-from parakh.score.latency import latency_stats, response_latencies
+from parakh.score.bargein import false_barge_ins, stop_latencies
+from parakh.score.latency import TurnLatency, latency_stats, response_latencies
 from parakh.score.wer import conversation_wer, group_by_turn, loose_wer, strict_wer
 from parakh.transport.ws import redact_url
 
@@ -127,7 +129,9 @@ def build_report(
     transcripts = grouped(finals)
     agent_text = grouped([(t, v) for t, v in bot if t >= first])
     agent_ttfb = grouped([(t, v) for t, v in ttfb if t >= first])
-    latencies = response_latencies(events)
+    stops = stop_latencies(events)
+    stop_by_turn = {s.turn: s for s in stops}
+    latencies = response_latencies(events, stops=stops)
     by_turn = {x.turn: x for x in latencies}
     # Per-turn WER needs a reached turn and an agent that exposes a transcript at all
     # (otherwise metrics.wer_reason says why). A reached turn with an empty transcript
@@ -144,6 +148,7 @@ def build_report(
             reason: str | None = "turn not reached"
         else:
             reason = None if lat is None else lat.reason
+        stop = stop_by_turn.get(index)
         turns.append(
             TurnReport(
                 index=index,
@@ -157,11 +162,23 @@ def build_report(
                 agent_text=" ".join(agent_text[index]),
                 agent_ttfb_ms=list(agent_ttfb[index]),
                 degradation=_degradation(line, index) if reached else None,
+                barge_in=None
+                if stop is None
+                else BargeInReport(
+                    after_agent_ms=stop.after_agent_ms,
+                    onset_ms=stop.onset_ms,
+                    stop_latency_ms=stop.stop_latency_ms,
+                    result=stop.result,
+                    via=stop.via,
+                ),
             )
         )
     wer = conversation_wer([t.reference for t in scenario.turns], transcripts)
     stats = latency_stats(latencies)
     jitter = result.jitter
+    stop_stats = latency_stats(
+        [TurnLatency(s.turn, s.stop_latency_ms, None) for s in stops if s.result == "yielded"]
+    )
     return Report(
         parakh_version=__version__,
         git_sha=_git_sha(),
@@ -193,6 +210,17 @@ def build_report(
             loose_wer=wer.loose_wer,
             loose_cer=wer.loose_cer,
             wer_reason=wer.reason,
+            stop_latency=None
+            if not stops
+            else LatencyStatsModel(
+                n=stop_stats.n,
+                p50_ms=stop_stats.p50_ms,
+                p90_ms=stop_stats.p90_ms,
+                p95_ms=stop_stats.p95_ms,
+                max_ms=stop_stats.max_ms,
+            ),
+            did_not_yield=sum(1 for s in stops if s.result == "did_not_yield"),
+            false_barge_in_ms=false_barge_ins(events),
         ),
         warnings=result.warnings,
     )

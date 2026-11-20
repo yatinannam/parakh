@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from parakh.score.bargein import StopLatency
 from parakh.score.latency import LatencyStats, TurnLatency, latency_stats, response_latencies
 
 
@@ -76,3 +77,35 @@ def test_stats() -> None:
 
 def test_stats_empty() -> None:
     assert latency_stats([]) == LatencyStats(0, None, None, None, None)
+
+
+def _stop(
+    turn: int, onset: float | None, stop: float | None, result: str, via: str | None
+) -> StopLatency:
+    return StopLatency(turn, 1000.0, onset, stop, result, via)  # type: ignore[arg-type]
+
+
+def test_barge_turn_latency_skips_old_reply() -> None:
+    # The old reply plays until onset + 340 = 5340, past the speech end at 5200.
+    events = [
+        _start(5000.0, 1),
+        _end(5200.0, 1),
+        _audio(5300.0, -20.0),
+        _audio(5340.0, -20.0),
+        _audio(5900.0, -20.0),
+    ]
+    assert response_latencies(events)[0].latency_ms == 100.0
+    stops = [_stop(1, 5000.0, 340.0, "yielded", "audio")]
+    assert response_latencies(events, stops=stops) == [TurnLatency(1, 700.0, None)]
+
+
+def test_did_not_yield_turn_has_no_latency() -> None:
+    events = [_start(5000.0, 1), _end(5200.0, 1), _audio(5300.0, -20.0)]
+    stops = [_stop(1, 5000.0, None, "did_not_yield", None)]
+    assert response_latencies(events, stops=stops) == [TurnLatency(1, None, "agent did not yield")]
+
+
+def test_agent_finished_first_turn_is_measured_as_usual() -> None:
+    events = [_start(5000.0, 1), _end(5200.0, 1), _audio(5300.0, -20.0)]
+    stops = [_stop(1, None, None, "agent_finished_first", None)]
+    assert response_latencies(events, stops=stops)[0].latency_ms == 100.0

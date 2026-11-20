@@ -32,6 +32,14 @@ class TurnDegradation(_Strict):
     clipped_samples: int
 
 
+class BargeInReport(_Strict):
+    after_agent_ms: float
+    onset_ms: float | None
+    stop_latency_ms: float | None
+    result: Literal["yielded", "did_not_yield", "agent_finished_first"]
+    via: Literal["interruption", "audio"] | None
+
+
 class TurnReport(_Strict):
     index: int
     say: str
@@ -46,6 +54,7 @@ class TurnReport(_Strict):
     agent_ttfb_ms: list[float]
     # Default so reports written before presets existed still load under schema_version 1.
     degradation: TurnDegradation | None = None
+    barge_in: BargeInReport | None = None
 
 
 class Metrics(_Strict):
@@ -54,6 +63,11 @@ class Metrics(_Strict):
     loose_wer: float | None
     loose_cer: float | None
     wer_reason: str | None
+    # Defaults so reports written before barge-in scoring still load under schema_version 1.
+    # stop_latency is None when the scenario has no barge-in.
+    stop_latency: LatencyStatsModel | None = None
+    did_not_yield: int = 0
+    false_barge_in_ms: list[float] = []
 
 
 class Report(_Strict):

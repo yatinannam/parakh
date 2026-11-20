@@ -47,6 +47,13 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 <tr><th>Status</th><td>{{ r.status }}</td></tr>
 <tr><th>Latency p50 / p90 / p95 / max</th><td>{{ r.metrics.latency.p50_ms | ms }} / {{ r.metrics.latency.p90_ms | ms }} / {{ r.metrics.latency.p95_ms | ms }} / {{ r.metrics.latency.max_ms | ms }}</td></tr>
 <tr><th>Turns with latency</th><td>{{ r.metrics.latency.n }}</td></tr>
+{% if r.metrics.stop_latency %}
+<tr><th>Barge-in stop latency p50 / p95 / max</th><td>{{ r.metrics.stop_latency.p50_ms | ms }} / {{ r.metrics.stop_latency.p95_ms | ms }} / {{ r.metrics.stop_latency.max_ms | ms }}</td></tr>
+<tr><th>Did not yield</th><td>{{ r.metrics.did_not_yield }}</td></tr>
+{% endif %}
+{% if r.metrics.stop_latency or r.metrics.false_barge_in_ms %}
+<tr><th>False barge-ins</th><td>{{ r.metrics.false_barge_in_ms | length }}{% if r.metrics.false_barge_in_ms %} (at {% for v in r.metrics.false_barge_in_ms %}{{ v | ms }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</td></tr>
+{% endif %}
 <tr><th>Strict WER</th><td>{{ r.metrics.strict_wer | pct }}</td></tr>
 <tr><th>Loose WER</th><td>{{ r.metrics.loose_wer | pct }}</td></tr>
 <tr><th>Loose CER</th><td>{{ r.metrics.loose_cer | pct }}</td></tr>
@@ -90,6 +97,10 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
  <span class="muted">latency {{ t.latency_ms | ms }}{% if t.latency_reason %} ({{ t.latency_reason }}){% endif %}, strict WER {{ t.strict_wer | pct }}, loose WER {{ t.loose_wer | pct }}</span></p>
 {% if t.degradation %}
 <p class="muted">line: SNR {{ "n/a" if t.degradation.snr_db is none else "%.1f"|format(t.degradation.snr_db) }} dB (at mixing), lost {{ t.degradation.lost_frames }}/{{ t.degradation.frames }} frames, clipped {{ t.degradation.clipped_samples }} samples</p>
+{% endif %}
+{% if t.barge_in %}
+{% set b = t.barge_in %}
+<p class="muted">barge-in after {{ b.after_agent_ms | ms }}: {% if b.result == "yielded" %}stopped in {{ b.stop_latency_ms | ms }} ({{ b.via }}){% elif b.result == "did_not_yield" %}did not yield within 2 s{% else %}agent finished first{% endif %}</p>
 {% endif %}
 <p>Said: {{ t.say }}</p>
 <p>Reference: {{ t.reference }}</p>

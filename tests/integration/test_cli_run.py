@@ -6,6 +6,7 @@ the command's own asyncio.run then runs on the test thread without clashing.
 
 import asyncio
 import json
+import os
 import shutil
 import threading
 from collections.abc import Iterator
@@ -22,6 +23,8 @@ from tests.fakes import FakeEngine
 from tests.integration.fake_agent import FakeBehaviour, fake_agent
 
 pytestmark = pytest.mark.integration
+
+TOL_MS = 60 if os.environ.get("CI") else 20
 
 if shutil.which("ffmpeg") is None:  # pragma: no cover
     pytest.skip("ffmpeg not installed", allow_module_level=True)
@@ -255,3 +258,43 @@ def test_run_with_preset_records_seed_and_degradation(tmp_path: Path) -> None:
     assert "phone_lossy" in html
     assert f"seed {report.seed}" in html
     assert "lost " in html
+
+
+BARGE_SCENARIO = SCENARIO.replace(
+    '  - say: "two"\n', '  - say: "two"\n    barge_in: { after_agent_ms: 1200 }\n'
+)
+
+
+async def test_barge_in_run_scores_stop_latency(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    scenario = base / "s.yaml"
+    scenario.write_text(BARGE_SCENARIO, encoding="utf-8")
+    behaviour = FakeBehaviour(
+        burst=False,
+        reply_ms=3000,
+        yield_after_ms=300,
+        send_interruption=True,
+        user_started=True,
+        transcripts=["one", "two", "three", "four"],
+    )
+    with background_agent(behaviour) as url:
+        report, _run_dir = await run_scenario(
+            scenario,
+            url,
+            preset="clean",
+            runs_dir=base / "runs",
+            engine=FakeEngine(),
+            cache_dir=base / "cache",
+        )
+    assert report.status == "completed"
+    barge = report.turns[1].barge_in
+    assert barge is not None
+    assert barge.result == "yielded"
+    assert barge.via == "interruption"
+    assert barge.stop_latency_ms is not None
+    assert abs(barge.stop_latency_ms - 300) <= 2 * TOL_MS
+    assert report.metrics.stop_latency is not None
+    assert report.metrics.stop_latency.n == 1
+    assert report.metrics.did_not_yield == 0
+    assert report.metrics.false_barge_in_ms == []
