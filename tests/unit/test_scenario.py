@@ -30,7 +30,9 @@ def test_example_scenario_loads():
     assert s.turns[1].reference == s.turns[1].say
     assert s.turns[2].reference == "haan mera number hai 9845012345"
     assert s.clock.utcoffset() == timedelta(hours=5, minutes=30)
-    assert s.limits.response_timeout_s == 8
+    # 15 s, not 8: a reply that runs two booking tool calls can take about 9 s
+    # (M2 batch 7eb38dc8), and that is a latency to measure, not a dead line.
+    assert s.limits.response_timeout_s == 15
 
 
 def test_rejects_unknown_field(tmp_path):
@@ -82,7 +84,7 @@ def test_barge_in_parsed(tmp_path):
     assert barge.after_agent_ms == 1200
 
 
-_LIMITS = "limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }"
+_LIMITS = "limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }"
 
 
 @pytest.mark.parametrize(
@@ -153,3 +155,7 @@ def test_bargein_scenario_loads():
         None,
     ]
     assert s.turns[2].reference == "haan mera number hai 9845012345"
+
+
+def test_bargein_scenario_shares_the_response_timeout():
+    assert load_scenario(BARGE_IN).limits.response_timeout_s == 15
