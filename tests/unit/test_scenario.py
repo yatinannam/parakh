@@ -137,3 +137,19 @@ def test_barge_in_on_first_turn_needs_agent_first(tmp_path):
     text = text.replace(first, first + "    barge_in: {after_agent_ms: 100}\n")
     with pytest.raises(ScenarioError, match="barge_in on the first turn needs agent_speaks_first"):
         load_scenario(_write(tmp_path, text))
+
+
+BARGE_IN = EXAMPLE.with_name("clinic-bargein-hinglish-01.yaml")
+
+
+def test_bargein_scenario_loads():
+    s = load_scenario(BARGE_IN)
+    assert s.id == "clinic-bargein-hinglish-01"
+    assert s.agent_speaks_first
+    assert [t.barge_in.after_agent_ms if t.barge_in else None for t in s.turns] == [
+        None,
+        1200,
+        None,
+        None,
+    ]
+    assert s.turns[2].reference == "haan mera number hai 9845012345"
