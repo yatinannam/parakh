@@ -394,6 +394,7 @@ async def _batch(
     presets: list[str],
     names: tuple[str, ...] = ("s1", "s2"),
     on_batch: Callable[[Path], None] | None = None,
+    gap_s: float = 0.0,
 ):
     base = tmp_path / "dir with space"
     base.mkdir(exist_ok=True)
@@ -406,6 +407,7 @@ async def _batch(
         engine=FakeEngine(),
         cache_dir=base / "cache",
         on_batch=on_batch,
+        gap_s=gap_s,
     )
 
 
@@ -480,3 +482,18 @@ async def test_single_run_does_not_call_on_batch(tmp_path: Path, monkeypatch: py
     seen: list[Path] = []
     await _batch(tmp_path, ["clean"], names=("s1",), on_batch=seen.append)
     assert seen == []
+
+
+async def test_batch_pauses_between_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The agent may still be finishing the previous call (a segment its VAD was hearing
+    # when the caller hung up); the pause lets that land before the next caller connects.
+    _batch_fake(monkeypatch)
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(run_module.asyncio, "sleep", fake_sleep)
+    await _batch(tmp_path, ["clean", "phone"], gap_s=run_module.BATCH_GAP_S)
+    assert run_module.BATCH_GAP_S == 3.0
+    assert sleeps == [3.0, 3.0, 3.0]  # 4 runs, 3 gaps, none before the first or after the last

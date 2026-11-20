@@ -26,6 +26,11 @@ from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
 from parakh.tts.engine import EdgeTTSEngine, TTSEngine
 from parakh.tts.ffmpeg import require_ffmpeg
 
+# Seconds between batch runs. The clinic agent's VAD can still be "hearing" the noise
+# bed when a caller hangs up; Pipecat closes that segment about 0.4 s later and Groq
+# transcribes it in under a second, so 3 s lets it land before the next call resets.
+BATCH_GAP_S = 3.0
+
 
 def exit_code(report: Report) -> int:
     """0 completed, 1 agent hung up before the first turn, 2 anything else."""
@@ -123,6 +128,7 @@ async def run_batch(
     cache_dir: Path = DEFAULT_CACHE_ROOT,
     on_start: Callable[[Path], None] | None = None,
     on_batch: Callable[[Path], None] | None = None,
+    gap_s: float = BATCH_GAP_S,
 ) -> tuple[list[tuple[Report, Path]], Path | None]:
     """Run every scenario under every preset, back to back, in scenario then preset order.
 
@@ -132,7 +138,9 @@ async def run_batch(
     A run that ends in any status does not stop the batch. Ctrl+C and errors raised
     before a call starts write the comparison for every run with a report, then re-raise.
     on_batch gets the batch dir once, before the first run, so a caller can show it
-    even when the batch ends in an exception.
+    even when the batch ends in an exception. Runs are gap_s apart, so an agent can
+    finish what the previous call left (a segment its VAD was still hearing when the
+    caller hung up) before the next caller connects and the agent resets its state.
     """
     pairs = [(path, preset) for path in scenario_paths for preset in presets]
     if len(pairs) == 1:
@@ -153,7 +161,9 @@ async def run_batch(
     if on_batch is not None:
         on_batch(batch_dir)
     try:
-        for path, preset in pairs:
+        for index, (path, preset) in enumerate(pairs):
+            if index and gap_s > 0:
+                await asyncio.sleep(gap_s)
             done.append(
                 await run_scenario(
                     path,
