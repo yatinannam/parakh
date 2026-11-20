@@ -122,6 +122,12 @@ def _ms(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.0f}"
 
 
+def _echo_comparison(batch_dirs: list[Path]) -> None:
+    """Show where a stopped batch left its comparison page, if the batch dir was made."""
+    if batch_dirs:
+        typer.echo(f"comparison: {batch_dirs[0] / 'compare.html'}", err=True)
+
+
 @app.command()
 def run(
     scenario: Annotated[Path, typer.Argument(help="Scenario YAML file or directory.")],
@@ -138,6 +144,7 @@ def run(
 
     More than one run (several scenarios or presets) also writes compare.html.
     """
+    batch_dirs: list[Path] = []
     try:
         presets = expand_presets(preset or ["clean"])
         files = _scenario_files([scenario])
@@ -153,16 +160,20 @@ def run(
                 engine=make_engine(),
                 cache_dir=cache_dir,
                 on_start=lambda run_dir: typer.echo(f"run dir: {run_dir}"),
+                on_batch=batch_dirs.append,
             )
         )
     except KeyboardInterrupt:
+        _echo_comparison(batch_dirs)
         # Click's default "Aborted!" exits 1, which would read as a failed task.
         typer.echo("interrupted", err=True)
         raise typer.Exit(2) from None
     except (ValueError, ScenarioError, FfmpegMissing) as exc:
+        _echo_comparison(batch_dirs)
         raise _fail(str(exc)) from exc
     # RuntimeError: ffmpeg could not decode the synthesised caller audio.
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
+        _echo_comparison(batch_dirs)
         raise _fail(f"run failed: {_describe(exc)}") from exc
     for result, _run_dir in results:
         latency = result.metrics.latency

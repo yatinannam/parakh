@@ -171,6 +171,25 @@ def test_run_prints_run_dir_at_start_and_exits_2_on_interrupt(
     assert result.output.index("run dir:") < result.output.index("interrupted")
 
 
+def test_batch_interrupt_prints_comparison_path_before_interrupted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batch_dir = tmp_path / "dir with space" / "b1"
+
+    async def fake_run_batch(*_a: object, on_batch: Callable[[Path], None], **_k: object):
+        on_batch(batch_dir)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(cli, "run_batch", fake_run_batch)
+    args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
+    result = CliRunner().invoke(app, [*args, "--preset", "clean", "--preset", "phone"])
+    assert result.exit_code == 2, result.output
+    assert result.output.count("comparison:") == 1
+    assert str(batch_dir / "compare.html") in result.output
+    assert result.output.index("comparison:") < result.output.index("interrupted")
+
+
 def test_run_rejects_unsupported_agent_rate(tmp_path: Path) -> None:
     args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
     result = CliRunner().invoke(app, [*args, "--agent-rate", "12345"])

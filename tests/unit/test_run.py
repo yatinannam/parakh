@@ -1,6 +1,7 @@
 import json
 import math
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from parakh.report import build as build_module
 from parakh.report.build import _git_sha, _ttfb_ms, build_report
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report, write_report_json
 from parakh.run import exit_code, run_batch, run_scenario
-from parakh.scenario import Scenario
+from parakh.scenario import Scenario, ScenarioError
 from parakh.score.wer import NO_TRANSCRIPT_REASON
 from parakh.transport.ws import redact_url, redact_urls
 from tests.fakes import FakeEngine, make_report
@@ -360,7 +361,11 @@ async def test_unsupported_agent_rate_rejected(tmp_path: Path):
 
 
 def _batch_fake(
-    monkeypatch: pytest.MonkeyPatch, statuses: list[str] | None = None, interrupt_at: int = -1
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: list[str] | None = None,
+    interrupt_at: int = -1,
+    error_at: int = -1,
+    error: Exception | None = None,
 ) -> list[tuple[str, str, Path]]:
     calls: list[tuple[str, str, Path]] = []
 
@@ -369,6 +374,8 @@ def _batch_fake(
         calls.append((path.stem, preset, runs_dir))
         status = statuses[n] if statuses else "completed"
         report = make_report(scenario_id=path.stem, preset=preset, status=status, run_id=f"r{n}")
+        if n == error_at and error is not None:
+            raise error  # before the call starts: no run dir, no report
         run_dir = runs_dir / f"r{n}"
         run_dir.mkdir(parents=True)
         if n == interrupt_at:
@@ -382,7 +389,12 @@ def _batch_fake(
     return calls
 
 
-async def _batch(tmp_path: Path, presets: list[str], names: tuple[str, ...] = ("s1", "s2")):
+async def _batch(
+    tmp_path: Path,
+    presets: list[str],
+    names: tuple[str, ...] = ("s1", "s2"),
+    on_batch: Callable[[Path], None] | None = None,
+):
     base = tmp_path / "dir with space"
     base.mkdir(exist_ok=True)
     return await run_batch(
@@ -393,6 +405,7 @@ async def _batch(tmp_path: Path, presets: list[str], names: tuple[str, ...] = ("
         agent_rate=16000,
         engine=FakeEngine(),
         cache_dir=base / "cache",
+        on_batch=on_batch,
     )
 
 
@@ -444,3 +457,26 @@ async def test_batch_interrupt_writes_compare_for_finished_runs(
     rows = json.loads((batch_dir / "compare.json").read_text(encoding="utf-8"))["rows"]
     assert sorted(r["status"] for r in rows) == ["completed", "interrupted"]
     assert (batch_dir / "compare.html").exists()
+
+
+@pytest.mark.parametrize("error", [ValueError("bad preset"), ScenarioError("bad scenario")])
+async def test_batch_pre_call_error_writes_compare_for_finished_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+):
+    calls = _batch_fake(monkeypatch, error_at=1, error=error)
+    seen: list[Path] = []
+    with pytest.raises(type(error)):
+        await _batch(tmp_path, ["clean", "phone"], on_batch=seen.append)
+    assert len(calls) == 2
+    batch_dir = calls[0][2]
+    assert seen == [batch_dir]
+    rows = json.loads((batch_dir / "compare.json").read_text(encoding="utf-8"))["rows"]
+    assert [r["status"] for r in rows] == ["completed"]
+    assert (batch_dir / "compare.html").exists()
+
+
+async def test_single_run_does_not_call_on_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _batch_fake(monkeypatch)
+    seen: list[Path] = []
+    await _batch(tmp_path, ["clean"], names=("s1",), on_batch=seen.append)
+    assert seen == []

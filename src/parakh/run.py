@@ -122,6 +122,7 @@ async def run_batch(
     engine: TTSEngine | None = None,
     cache_dir: Path = DEFAULT_CACHE_ROOT,
     on_start: Callable[[Path], None] | None = None,
+    on_batch: Callable[[Path], None] | None = None,
 ) -> tuple[list[tuple[Report, Path]], Path | None]:
     """Run every scenario under every preset, back to back, in scenario then preset order.
 
@@ -130,6 +131,8 @@ async def run_batch(
     compare.json are rewritten after every run, so a stopped batch keeps its page.
     A run that ends in any status does not stop the batch. Ctrl+C and errors raised
     before a call starts write the comparison for every run with a report, then re-raise.
+    on_batch gets the batch dir once, before the first run, so a caller can show it
+    even when the batch ends in an exception.
     """
     pairs = [(path, preset) for path in scenario_paths for preset in presets]
     if len(pairs) == 1:
@@ -147,6 +150,8 @@ async def run_batch(
         return [single], None
     batch_dir = runs_dir / secrets.token_hex(4)
     done: list[tuple[Report, Path]] = []
+    if on_batch is not None:
+        on_batch(batch_dir)
     try:
         for path, preset in pairs:
             done.append(
