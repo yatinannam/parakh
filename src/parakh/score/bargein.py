@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from parakh.audio import SPEECH_DBFS
 
-STOP_GAP_MS = 200.0
+STOP_QUIET_MS = 800.0
 DID_NOT_YIELD_MS = 2000.0
 FALSE_BARGE_IN_GRACE_MS = 500.0
 
@@ -20,8 +20,18 @@ class StopLatency:
     via: Literal["interruption", "audio"] | None
 
 
-def _audio_stop(events: list[dict[str, Any]], onset: float, threshold_dbfs: float) -> float:
-    """End of the agent's continuous loud audio that is still playing at the onset."""
+def _audio_stop(
+    events: list[dict[str, Any]],
+    onset: float,
+    threshold_dbfs: float,
+    speech_end: float | None,
+) -> float:
+    """End of the agent's loud audio that is still playing at the onset.
+
+    The agent has stopped only after quiet lasting STOP_QUIET_MS (the end-of-turn
+    silence), or quiet lasting until the caller's speech end if that comes first.
+    Shorter pauses are part of the reply.
+    """
     frames = sorted(
         (float(e["play_ms"]), float(e["duration_ms"]))
         for e in events
@@ -32,7 +42,9 @@ def _audio_stop(events: list[dict[str, Any]], onset: float, threshold_dbfs: floa
     )
     end = onset
     for start, duration in frames:
-        if start - end >= STOP_GAP_MS:
+        if start > end and (
+            start - end >= STOP_QUIET_MS or (speech_end is not None and end <= speech_end <= start)
+        ):
             break
         end = max(end, start + duration)
     return end
@@ -57,7 +69,15 @@ def stop_latencies(
             )
         elif e["kind"] == "barge_in":
             onset = float(e["t_ms"])
-            audio = _audio_stop(events, onset, threshold_dbfs)
+            speech_end = next(
+                (
+                    float(x["t_ms"])
+                    for x in events
+                    if x["kind"] == "caller_speech_end" and int(x["turn"]) == int(e["turn"])
+                ),
+                None,
+            )
+            audio = _audio_stop(events, onset, threshold_dbfs, speech_end)
             cut = min(
                 (
                     float(x["t_ms"])

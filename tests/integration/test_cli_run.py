@@ -298,3 +298,31 @@ async def test_barge_in_run_scores_stop_latency(tmp_path: Path) -> None:
     assert report.metrics.stop_latency.n == 1
     assert report.metrics.did_not_yield == 0
     assert report.metrics.false_barge_in_ms == []
+
+
+async def test_pauses_inside_a_reply_are_not_a_yield(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    scenario = base / "s.yaml"
+    scenario.write_text(BARGE_SCENARIO, encoding="utf-8")
+    behaviour = FakeBehaviour(
+        burst=False,
+        reply_ms=6000,
+        pause_every_ms=500,
+        pause_ms=300,
+        transcripts=["one", "two", "three", "four"],
+    )
+    with background_agent(behaviour) as url:
+        report, _run_dir = await run_scenario(
+            scenario,
+            url,
+            preset="clean",
+            runs_dir=base / "runs",
+            engine=FakeEngine(),
+            cache_dir=base / "cache",
+        )
+    barge = report.turns[1].barge_in
+    assert barge is not None
+    assert barge.result == "did_not_yield"
+    assert barge.stop_latency_ms is None
+    assert report.metrics.did_not_yield == 1

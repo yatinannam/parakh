@@ -57,6 +57,9 @@ class FakeBehaviour:
     frame on yielding. Either way the fake sends bot-stopped-speaking and still
     replies to the caller's utterance. user_started sends RTVI user-started-speaking
     at each caller onset.
+
+    pause_every_ms and pause_ms: a paced reply sends silent 20 ms frames for pause_ms
+    after every pause_every_ms of tone, as real TTS pauses inside a sentence.
     """
 
     greet_ms: int | None = 300
@@ -78,6 +81,8 @@ class FakeBehaviour:
     yield_after_ms: int | None = None
     send_interruption: bool = False
     user_started: bool = False
+    pause_every_ms: int | None = None
+    pause_ms: int = 0
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -235,6 +240,12 @@ class _Session:
             if not self._speaking:
                 await self._ws.send(self._silence)
 
+    def _in_pause(self, k: int) -> bool:
+        every = self._b.pause_every_ms
+        if every is None:
+            return False
+        return (k * 20) % (every + self._b.pause_ms) >= every
+
     async def _speak(self) -> None:
         self._speaking = True
         await self._ws.send(_rtvi("bot-started-speaking"))
@@ -246,6 +257,8 @@ class _Session:
                 await _sleep_until(start_ns + k * _FRAME_NS)
             if self._yield_at_ns is not None and time.perf_counter_ns() >= self._yield_at_ns:
                 break
+            if self._in_pause(k):
+                message = self._silence
             await self._ws.send(message)
             # The fake shares the driver's event loop; yield after each frame so the
             # driver reads it on arrival, as it would from an agent in its own process.

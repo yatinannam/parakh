@@ -42,7 +42,7 @@ def test_stop_by_interruption() -> None:
 
 
 def test_stop_by_audio_gap() -> None:
-    events = [_barge(), *_run(4000.0, 5340.0), *_run(5700.0, 5800.0)]
+    events = [_barge(), *_run(4000.0, 5340.0), *_run(6200.0, 6300.0)]
     stop = _only(events)
     assert stop.stop_latency_ms == 340.0
     assert stop.via == "audio"
@@ -50,7 +50,7 @@ def test_stop_by_audio_gap() -> None:
 
 
 def test_first_of_interruption_and_gap() -> None:
-    events = [_barge(), *_run(4000.0, 5300.0), *_run(5700.0, 6000.0), _interruption(5450.0)]
+    events = [_barge(), *_run(4000.0, 5300.0), *_run(6200.0, 6500.0), _interruption(5450.0)]
     stop = _only(events)
     assert stop.stop_latency_ms == 300.0
     assert stop.via == "audio"
@@ -69,8 +69,36 @@ def test_interruption_before_onset_is_ignored() -> None:
 def test_short_gap_does_not_end_stop() -> None:
     events = [_barge(), *_run(4000.0, 5200.0), *_run(5360.0, 5600.0), *_run(5900.0, 6000.0)]
     stop = _only(events)
-    assert stop.stop_latency_ms == 600.0
+    assert stop.stop_latency_ms == 1000.0
     assert stop.via == "audio"
+
+
+def _speech_end(t: float, turn: int = 1) -> dict[str, Any]:
+    return {"kind": "caller_speech_end", "t_ms": t, "turn": turn}
+
+
+def test_pause_inside_reply_is_not_a_stop() -> None:
+    events = [_barge(), *_run(4000.0, 5400.0), *_run(5700.0, 7300.0)]
+    stop = _only(events)
+    assert stop.result == "did_not_yield"
+    assert stop.via is None
+
+
+def test_quiet_800_ms_is_a_stop() -> None:
+    events = [_barge(), *_run(4000.0, 5400.0), *_run(6200.0, 6300.0)]
+    stop = _only(events)
+    assert (stop.result, stop.via, stop.stop_latency_ms) == ("yielded", "audio", 400.0)
+
+
+def test_quiet_until_caller_speech_end_is_a_stop() -> None:
+    events = [_barge(), _speech_end(6000.0), *_run(4000.0, 5600.0), *_run(6100.0, 6200.0)]
+    stop = _only(events)
+    assert (stop.result, stop.via, stop.stop_latency_ms) == ("yielded", "audio", 600.0)
+
+
+def test_speech_end_of_another_turn_is_ignored() -> None:
+    events = [_barge(), _speech_end(6000.0, turn=2), *_run(4000.0, 5600.0), *_run(6100.0, 6200.0)]
+    assert _only(events).stop_latency_ms == 1200.0
 
 
 def test_did_not_yield_after_2s() -> None:
