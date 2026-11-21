@@ -17,6 +17,7 @@ FRAME_MS = 20
 SUPPORTED_RATES: tuple[int, ...] = (8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000)
 SILENCE_DBFS = -120.0
 SPEECH_DBFS = -45.0
+SILENT_DBFS = -60.0
 _WINDOW_MS = 10
 _FULL_SCALE = 32768.0
 
@@ -81,6 +82,11 @@ def _speech_window_bounds(pcm: PCM, rate: int, threshold_dbfs: float) -> tuple[i
     if not loud:
         return None
     return loud[0], min(loud[-1] + size, len(pcm))
+
+
+def is_silent(pcm: PCM, rate: int, threshold_dbfs: float = SILENT_DBFS) -> bool:
+    """True when no 10 ms window rises above the threshold (an empty clip is silent)."""
+    return _speech_window_bounds(pcm, rate, threshold_dbfs) is None
 
 
 def trim_silence(pcm: PCM, rate: int, threshold_dbfs: float = SPEECH_DBFS) -> PCM:

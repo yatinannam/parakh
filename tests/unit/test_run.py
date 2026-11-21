@@ -224,9 +224,14 @@ def _write_events(run_dir: Path, events: list[dict[str, Any]]) -> None:
     (run_dir / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-async def _interrupted(scenario: Path, runs: Path, cache: Path) -> None:
+async def _interrupted(scenario: Path, runs: Path, cache: Path, preset: str = "clean") -> None:
     await run_scenario(
-        scenario, "ws://127.0.0.1:1", runs_dir=runs, engine=FakeEngine(), cache_dir=cache
+        scenario,
+        "ws://127.0.0.1:1",
+        preset=preset,
+        runs_dir=runs,
+        engine=FakeEngine(),
+        cache_dir=cache,
     )
 
 
@@ -506,3 +511,30 @@ async def test_batch_pauses_between_runs(tmp_path: Path, monkeypatch: pytest.Mon
         cache_dir=base / "cache",
     )
     assert sleeps == [3.0, 3.0, 3.0]  # 4 runs, 3 gaps, none before the first or after the last
+
+
+async def test_interrupt_partial_report_keeps_seed_and_degradation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    scenario, runs, cache = _setup(tmp_path)
+
+    async def fake_run_call(_url: str, _scn: Scenario, _clips: Any, run_dir: Path, **_k: Any):
+        _write_events(
+            run_dir,
+            [
+                {"kind": "call_start", "t_ms": 0.0},
+                {"kind": "caller_turn_start", "t_ms": 100.0, "turn": 0},
+            ],
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    with pytest.raises(KeyboardInterrupt):
+        await _interrupted(scenario, runs, cache, "phone_lossy")
+    (run_dir,) = list(runs.iterdir())
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["status"] == "interrupted"
+    assert data["preset"] == "phone_lossy"
+    assert isinstance(data["seed"], int)
+    assert data["turns"][0]["degradation"]["frames"] > 0
+    assert data["turns"][1]["degradation"] is None

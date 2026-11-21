@@ -230,7 +230,12 @@ INTERRUPT_WARNING = "interrupted by the user"
 
 
 def interrupted_report(
-    scenario: Scenario, run_id: str, run_dir: Path, agent_url: str, preset: str
+    scenario: Scenario,
+    run_id: str,
+    run_dir: Path,
+    agent_url: str,
+    preset: str,
+    line: CallerLine | None = None,
 ) -> Report:
     """Partial report from the events recorded so far; the minimal fallback without any."""
     try:
@@ -257,7 +262,7 @@ def interrupted_report(
         warnings=[*warnings, INTERRUPT_WARNING],
     )
     return build_report(
-        scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset
+        scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset, line=line
     )
 
 

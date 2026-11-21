@@ -121,3 +121,9 @@ def test_empty_clip_degrades_to_empty(name: str) -> None:
 def test_call_seed_is_stable() -> None:
     assert call_seed("clinic-book-hinglish-01", "phone") == 1493743292490877660
     assert call_seed("a", "phone") != call_seed("a", "bad_line")
+
+
+def test_near_silent_clip_is_not_amplified() -> None:
+    pcm = np.where(np.arange(RATE) % 2 == 0, 2, -2).astype(np.int16)
+    out = degrade(pcm, RATE, get_preset("phone"), out_rate=16000, noise=None, rng=part_rng(1, "a"))
+    assert int(np.max(np.abs(out.pcm))) < 100

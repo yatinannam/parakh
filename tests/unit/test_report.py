@@ -240,3 +240,12 @@ def test_m1_report_without_barge_in_loads():
     loaded = Report.model_validate(data)
     assert loaded.metrics.stop_latency is None
     assert "Barge-in stop" not in render_html(loaded)
+
+
+def test_turn_without_noise_prints_snr_na_without_unit():
+    report = make_report().model_copy(update={"preset": "phone"})
+    deg = TurnDegradation(snr_db=None, frames=30, lost_frames=0, clipped_samples=0)
+    report.turns[0] = report.turns[0].model_copy(update={"degradation": deg})
+    html = render_html(report)
+    assert "line: SNR n/a, lost 0/30 frames" in html
+    assert "n/a dB" not in html

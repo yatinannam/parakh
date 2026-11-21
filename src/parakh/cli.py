@@ -12,7 +12,14 @@ import typer
 from edge_tts.exceptions import EdgeTTSException
 
 from parakh import __version__
-from parakh.audio import SAMPLE_RATE, SUPPORTED_RATES, read_wav, resample, write_wav
+from parakh.audio import (
+    SAMPLE_RATE,
+    SUPPORTED_RATES,
+    is_silent,
+    read_wav,
+    resample,
+    write_wav,
+)
 from parakh.budget.estimate import GROQ_LLM_ASSUMED, GROQ_STT_LIMITS, estimate
 from parakh.console import configure_console
 from parakh.degrade.chain import degrade as degrade_clip
@@ -123,8 +130,8 @@ def _ms(value: float | None) -> str:
 
 
 def _echo_comparison(batch_dirs: list[Path]) -> None:
-    """Show where a stopped batch left its comparison page, if the batch dir was made."""
-    if batch_dirs:
+    """Show where a stopped batch left its comparison page, if one was written."""
+    if batch_dirs and (batch_dirs[0] / "compare.html").is_file():
         typer.echo(f"comparison: {batch_dirs[0] / 'compare.html'}", err=True)
 
 
@@ -228,6 +235,11 @@ def degrade_command(
         if src_rate not in SUPPORTED_RATES:
             raise ValueError(f"{clip} has unsupported sample rate {src_rate}")
         pcm = resample(pcm, src_rate, SAMPLE_RATE)
+        if spec.noise is not None:
+            if len(pcm) == 0:
+                raise DegradeError("clip is empty")
+            if is_silent(pcm, SAMPLE_RATE):
+                raise DegradeError("clip has no audio above -60 dBFS; SNR is undefined")
         track = asyncio.run(noise_track(spec, seed, TTSCache(cache_dir), make_engine()))
         rng = part_rng(seed, "turn-0")
         noise = None

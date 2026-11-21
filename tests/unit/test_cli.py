@@ -178,6 +178,8 @@ def test_batch_interrupt_prints_comparison_path_before_interrupted(
 
     async def fake_run_batch(*_a: object, on_batch: Callable[[Path], None], **_k: object):
         on_batch(batch_dir)
+        batch_dir.mkdir(parents=True)
+        (batch_dir / "compare.html").write_text("x", encoding="utf-8")
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
@@ -379,3 +381,51 @@ def test_budget_prints_presets() -> None:
     assert (
         "noise presets can add STT requests when the agent's VAD reacts to noise" in result.output
     )
+
+
+def test_batch_interrupt_without_comparison_file_prints_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batch_dir = tmp_path / "dir with space" / "b1"
+
+    async def fake_run_batch(*_a: object, on_batch: Callable[[Path], None], **_k: object):
+        on_batch(batch_dir)  # announced, but no run finished, so no compare.html
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(cli, "run_batch", fake_run_batch)
+    args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
+    result = CliRunner().invoke(app, [*args, "--preset", "clean", "--preset", "phone"])
+    assert result.exit_code == 2, result.output
+    assert "comparison:" not in result.output
+    assert "interrupted" in result.output
+
+
+def _lsb_wav(path: Path, samples: int = 16000) -> Path:
+    import numpy as np
+
+    from parakh.audio import write_wav
+
+    pcm = np.where(np.arange(samples) % 2 == 0, 2, -2).astype(np.int16)
+    write_wav(path, pcm, 16000)
+    return path
+
+
+def test_degrade_near_silent_clip_with_noise_exits_2(tmp_path):
+    clip = _lsb_wav(tmp_path / "dir with space" / "quiet.wav")
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
+    assert result.exit_code == 2
+    assert "clip has no audio above -60 dBFS; SNR is undefined" in result.stderr
+
+
+def test_degrade_empty_clip_with_noise_exits_2(tmp_path):
+    import numpy as np
+
+    from parakh.audio import write_wav
+
+    clip = tmp_path / "dir with space" / "empty.wav"
+    write_wav(clip, np.zeros(0, dtype=np.int16), 16000)
+    result = CliRunner().invoke(app, ["degrade", str(clip), "--preset", "bad_line"])
+    assert result.exit_code == 2
+    assert "clip is empty" in result.stderr
+    assert "noise has zero RMS" not in result.stderr

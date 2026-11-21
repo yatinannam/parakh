@@ -8,7 +8,7 @@ from pathlib import Path
 
 from parakh.audio import SUPPORTED_RATES
 from parakh.caller.driver import run_call
-from parakh.caller.line import build_line
+from parakh.caller.line import CallerLine, build_line
 from parakh.caller.recorder import read_events
 from parakh.degrade import get_preset
 from parakh.report.build import (
@@ -92,7 +92,7 @@ async def run_scenario(
             line=line,
         )
     except (KeyboardInterrupt, asyncio.CancelledError):
-        _write_interrupted(scenario, run_id, run_dir, agent_url, preset)
+        _write_interrupted(scenario, run_id, run_dir, agent_url, preset, line)
         raise
     except Exception as exc:
         status = "protocol_error" if isinstance(exc, ProtocolError) else "internal_error"
@@ -104,11 +104,20 @@ async def run_scenario(
 
 
 def _write_interrupted(
-    scenario: Scenario, run_id: str, run_dir: Path, agent_url: str, preset: str
+    scenario: Scenario,
+    run_id: str,
+    run_dir: Path,
+    agent_url: str,
+    preset: str,
+    line: CallerLine | None = None,
 ) -> None:
-    """Write the partial report; a failure here must never mask the interrupt."""
+    """Write the partial report; a failure here must never mask the interrupt.
+
+    line is None when Ctrl+C landed while the caller audio was still being rendered.
+    """
     with contextlib.suppress(Exception):
-        _write(interrupted_report(scenario, run_id, run_dir, agent_url, preset), run_dir)
+        report = interrupted_report(scenario, run_id, run_dir, agent_url, preset, line)
+        _write(report, run_dir)
 
 
 def _write(report: Report, run_dir: Path) -> None:

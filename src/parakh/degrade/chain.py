@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from parakh.audio import PCM, resample
+from parakh.audio import PCM, is_silent, resample
 from parakh.degrade.filters import (
     F64,
     TELEPHONE_RATE,
@@ -66,7 +66,10 @@ def degrade(
     if len(pcm) == 0:
         return Degraded(np.zeros(0, dtype=np.int16), [], DegradeStats(None, 0, 0, 0))
 
-    speech = peak_normalise(pcm.astype(np.float64))
+    # A near-silent clip would be amplified by up to 80 dB: leave it as it is.
+    speech = pcm.astype(np.float64)
+    if not is_silent(pcm, rate):
+        speech = peak_normalise(speech)
     x = speech
     snr = None
     if preset.noise is not None:
