@@ -18,3 +18,4 @@
 | [`runbooks/run-m2.md`](runbooks/run-m2.md) | M2 run: the five presets, batch runs, the comparison page, what the M2 runs showed, Groq requests per run, troubleshooting, run log. |
 | [`reviews/2026-11-16-m0-review.md`](reviews/2026-11-16-m0-review.md) | M0 code review: findings fixed, minors deferred, rulings. |
 | [`reviews/2026-11-17-m1-review.md`](reviews/2026-11-17-m1-review.md) | M1 review: per-task outcomes, final review fixes, rulings, deferred findings, live-run notes. |
+| [`reviews/2026-11-21-m2-review.md`](reviews/2026-11-21-m2-review.md) | M2 review: per-task outcomes, the final review and its fixes, rulings, deferred findings (M3 start and later). |
