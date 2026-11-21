@@ -3,6 +3,7 @@
 Date: 2026-11-15
 Status: **approved by Yatin, 2026-11-15**
 Updated: 2026-11-17, M1 close-out: Pipecat pin and agent LLM (6.5), normaliser refinements (6.7), budget scope (6.8), M1 CLI (6.10), M1 exit criterion met (10), EC-10, EC-11, EC-48, EC-78, EC-81, EC-82 (11), D14 (12). M1 final review fixes: scenario limits (6.1), playback clock `loud_end` (6.4), one long-lived agent pipeline (6.5), per-turn WER of an unheard turn (6.7), exit 2 outside `run` (6.10), EC-27, EC-82 (11).
+Updated: 2026-11-21, M2 close-out: scenario limits (6.1), degrader stages, bed, noise level, seeds and presets (6.3), playback clock, flush, reply onsets, `caller_frame` events, barge-in and the turn machine (6.4), agent voice and per-call state (6.5), stop latency, barge-in turn latency and false barge-ins (6.7), estimate rates (6.8), comparison page and batch layout (6.9), CLI (6.10), M2 exit criterion met (10), EC-22 to EC-27, EC-37, EC-64, EC-78 and the new EC-83 to EC-87 (11), backlog (13).
 Inputs: [CLAUDE.md](../../../CLAUDE.md), [Calibrate analysis](../../research/2026-11-15-calibrate-analysis.md), [free-tier notes](../../research/2026-11-15-free-tier-and-platform-notes.md)
 Knowledge graph: [docs/kg](../../kg/README.md)
 
@@ -122,10 +123,10 @@ expect:                                         # M4
     appointments:
       - { doctor_id: dr-rao, date: "2026-11-20", time: "10:30", patient_phone: "9845012345" }
     exact_count: true
-limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 ```
 
-`say` is the text sent to TTS, in whatever script the voice reads best. `ref` is the canonical reference transcript for WER. `limits.max_turns` is at least 1 (0 would play no turn and still report `completed`), both timeouts are finite and above 0, and `barge_in.after_agent_ms` is 0 or more. All content is synthetic: invented names, numbers and clinics.
+`say` is the text sent to TTS, in whatever script the voice reads best. `ref` is the canonical reference transcript for WER. `limits.max_turns` is at least 1 (0 would play no turn and still report `completed`), both timeouts are finite and above 0, and `barge_in.after_agent_ms` is 0 or more. `response_timeout_s` defaults to 8; the Hinglish scenarios set 15, because a reply that needs two tool calls after the end-of-turn wait took about 9 s in M2 (EC-86). All content is synthetic: invented names, numbers and clinics.
 
 ### 6.2 Caller TTS and cache
 
@@ -136,36 +137,52 @@ limits: { max_turns: 12, response_timeout_s: 8, call_timeout_s: 180 }
 
 ### 6.3 Degrader
 
-Pure numpy/scipy, deterministic for a given seed (seed = hash of scenario id, preset, turn index).
+Pure numpy/scipy, deterministic for a given seed. The call seed is the first 8 bytes of the sha256 of the scenario id and the preset; each random part draws from its own generator, keyed by the seed and a part name (`noise`, `bed`, `turn-<i>`), so changing one part never shifts another (EC-26).
+
+Stages, in the order `degrade()` applies them:
 
 | Stage | Detail |
 |---|---|
-| Band-limit | 300-3400 Hz band-pass (telephone band). |
-| Resample | `scipy.signal.resample_poly` 16 kHz to 8 kHz and back (anti-aliased). |
-| G.711 mu-law | Own numpy encoder and decoder (no `audioop`, which is deprecated and removed in Python 3.13). Cross-checked in tests against `ffmpeg -c:a pcm_mulaw`. Peak-normalise to -3 dBFS first to avoid clipping. |
-| Noise | Mixed at a target SNR (speech-active RMS vs noise RMS). Sources: synthetic white, pink and brown noise; synthetic "babble" made by overlaying 4-6 of our own TTS clips of unrelated synthetic text; optional user-supplied files, never committed. Noise plays during caller silence too, as on a real line. |
-| Packet loss | Drop 20 ms frames (zero-fill, or repeat the previous frame for simple concealment) at a set rate, with optional bursts. |
-| Clipping | Hard clip at a set level for the `bad_line` preset. |
+| Peak-normalise | To -3 dBFS, before anything else, so the codec does not clip (EC-22). |
+| Noise | Added to the 16 kHz clip at a target SNR, before the telephone stage. SNR is speech-active RMS (10 ms windows above -45 dBFS) against noise RMS, set and measured at this mixing point. The noise level is set once per call from all the call's peak-normalised clips, so the line keeps one noise floor during turns and between them; each turn's SNR is measured and reported (`snr_db`, `null` for a silent turn, EC-24). Sources: synthetic white, pink and brown noise at unit RMS, and synthetic babble (below). |
+| Clipping | Hard clip at a set level (`bad_line`), after the noise is added and before the codec. Clipped and saturated samples are counted per turn (`clipped_samples`). |
+| Telephone | Order-6 Butterworth 300-3400 Hz band-pass, zero phase (`sosfiltfilt`, no padding); `resample_poly` 16 kHz to 8 kHz (anti-aliased, EC-23); G.711 mu-law encode and decode. |
+| Packet loss | Drop 20 ms frames at a set rate, independent or in bursts (two-state Gilbert model with a set mean burst length), with zero-fill or repeat-previous concealment. Each sent frame's `lost` flag is logged (6.4). |
+| Output | Resample to the agent's input rate (the way a telephony gateway hands audio to an agent), 16-bit PCM. |
 
-Presets (config, not code): `clean`; `phone` (band-limit, 8 kHz, mu-law); `phone_noisy` (+ babble or street-like noise at 10 dB SNR); `phone_lossy` (+ 3 % loss); `bad_line` (5 dB SNR, 5 % loss with bursts, clipping). After a phone preset the audio is upsampled to the agent's input rate, the way a telephony gateway hands audio to an agent.
+The mu-law encoder and decoder are written from the G.711 algorithm in numpy (no `audioop`, which is deprecated and removed in Python 3.13). They are byte-identical to `ffmpeg -c:a pcm_mulaw` for all 65,536 int16 values and all 256 codes; at segment edges the encoder picks the nearer reconstruction level, as ffmpeg does.
+
+Babble is six talkers, each an edge-tts voice reading an invented sentence from `presets.yaml`, looped from random starts, summed and normalised to unit RMS. It uses only Parakh's own TTS and synthetic text (EC-64). The call's noise is a 30 s track at 16 kHz. Before the call, `parakh.caller.line` renders every turn and a 10 s noise bed; the driver streams the bed in a loop between turns (6.4), so noise plays during caller silence too, as on a real line.
+
+Presets live in `src/parakh/degrade/presets.yaml`, config rather than code, each adding one factor to the last:
+
+| Preset | Adds |
+|---|---|
+| `clean` | Nothing: the clip resampled to the agent's rate. |
+| `phone` | Telephone stage: band-limit, 8 kHz, mu-law. |
+| `phone_noisy` | `phone` plus babble at 10 dB SNR. |
+| `phone_lossy` | `phone` plus 3 % independent packet loss, with no noise (one factor per preset). |
+| `bad_line` | `phone` plus pink noise at 5 dB SNR (the street-like noise), 5 % loss in bursts (mean 3 frames) and a hard clip at -10 dBFS. |
+
+User-supplied noise files and user-defined presets are not in M2 (backlog, 13).
 
 ### 6.4 Call driver (client)
 
 - Connects to `ws://host:port`, speaks Pipecat protobuf frames: sends `AudioRawFrame` (16 kHz mono by default, configurable), receives `AudioRawFrame`, `TextFrame`, `TranscriptionFrame`, `InterruptionFrame` and `MessageFrame` (RTVI JSON). Uses `pipecat-ai`'s generated protobuf module (BSD-2) as a dependency; nothing copied.
-- **Real-time pacer.** Streams a 20 ms frame every 20 ms for the whole call: caller speech, or silence (or the noise bed) between turns, like a real line. Pacing uses absolute deadlines from `time.perf_counter_ns()` with catch-up, because asyncio timers on Windows can be about 15.6 ms coarse. Send jitter is measured and reported. A run whose p99 jitter exceeds 30 ms is marked `timing_unreliable`.
-- **Virtual playback clock.** Agents often send TTS audio faster than real time. The driver models a phone speaker: `playback_end = max(playback_end, arrival) + frame_duration`. Every frame takes its place on that timeline, silent or not. "Agent is speaking" means `now < loud_end`, where `loud_end` is the playback end of the last frame above -45 dBFS (EC-27), so an agent that streams silence between replies is not speaking. This drives turn-taking and barge-in timing; the 800 ms end-of-turn silence and the `bot-stopped-speaking` latch also count from `loud_end`.
-- **Turn-taking state machine.** States: `WAIT_AGENT`, `CALLER_SPEAKING`, `AGENT_SPEAKING`, `DONE`. The next caller turn starts when the agent has gone quiet for `end_of_turn_silence_ms` (default 800), or on an RTVI `bot-stopped-speaking` message when the agent sends one. Timeouts: no agent audio within `response_timeout_s` gives a `turn_timeout` event. The call ends when the script is done and the agent has finished, or at `max_turns`, `call_timeout_s`, or socket close.
-- **Barge-in (M2).** If a turn has `barge_in.after_agent_ms`, the caller starts speaking that long after the agent starts speaking (on the playback clock). Stop latency is measured from barge-in onset to the first of: an `InterruptionFrame`, or the last agent audio frame before a 200 ms gap. If the agent keeps sending audio for more than 2 s, the result is `did_not_yield`.
-- **Recorder.** Every frame in and out goes to `runs/<run_id>/events.jsonl` with monotonic timestamps. Both audio streams are saved as WAV. Durations always use the monotonic clock; wall-clock time is used only for labels.
+- **Real-time pacer.** Streams a 20 ms frame every 20 ms for the whole call: caller speech, or silence or the noise bed between turns, like a real line. Every frame sent is logged as a `caller_frame` event (`turn`, `frame`, `lost`); a bed frame has `turn` null and `frame` set to its index in the bed. Pacing uses absolute deadlines from `time.perf_counter_ns()` with catch-up, because asyncio timers on Windows can be about 15.6 ms coarse. Send jitter is measured and reported. A run whose p99 jitter exceeds 30 ms is marked `timing_unreliable`.
+- **Virtual playback clock.** Agents often send TTS audio faster than real time. The driver models a phone speaker: `playback_end = max(playback_end, arrival) + frame_duration`. Frames take their place on that timeline, with one exception: a silent frame that arrives while earlier audio is still queued is not placed, so streamed silence never pushes later speech back (silent frames fill gaps only). When the agent sends an interruption frame, the driver flushes the queue (`flush()`) and logs `flushed_ms` on the `agent_interruption` event; the agent track is cut there too. "Agent is speaking" means `now < loud_end`, where `loud_end` is the playback end of the last frame above -45 dBFS (EC-27), so an agent that streams silence between replies is not speaking. The clock also keeps a reply onset: the playback start of the current run of loud audio, where a new run starts after a gap of more than 200 ms. This drives turn-taking and barge-in timing; the 800 ms end-of-turn silence and the `bot-stopped-speaking` latch also count from `loud_end`. Each `agent_audio` event carries `play_ms`, its playback start on this clock. Stereo agent audio is downmixed, and a rate outside 8, 11.025, 16, 22.05, 24, 32, 44.1 and 48 kHz is a protocol error.
+- **Turn-taking state machine.** States: `WAIT_AGENT`, `CALLER_SPEAKING`, `AGENT_SPEAKING`, `DONE`. The next caller turn starts when the agent has gone quiet for `end_of_turn_silence_ms` (default 800), or on an RTVI `bot-stopped-speaking` message when the agent sends one. Timeouts: no agent audio within `response_timeout_s` gives a `turn_timeout` event. The call ends when the script is done and the agent has finished, or at `max_turns`, `call_timeout_s`, or socket close. A `bot-stopped-speaking` hold still pending when a caller turn's last frame is sent is discarded, so a stale stop does not end the next wait early.
+- **Barge-in (M2).** If a turn has `barge_in.after_agent_ms`, the caller starts that turn once the agent is speaking and `now >= reply_onset + after_agent_ms` on the playback clock. The reply onset is recorded on entering `AGENT_SPEAKING` and kept through pauses within the reply. The driver logs a `barge_in` event when it fires, and `barge_in_missed` when the reply ended before the point. Stop latency is scored from the barge-in onset (6.7).
+- **Recorder.** Every frame in and out goes to `runs/<run_id>/events.jsonl` with monotonic timestamps. Both audio streams are saved as WAV, each resampled once per contiguous run of frames, so there are no clicks at frame joins. Durations always use the monotonic clock; wall-clock time is used only for labels.
 
 ### 6.5 Test agent (`agents/clinic_agent`)
 
 A Pipecat bot for a synthetic clinic receptionist ("Parakh Clinic"), served with Pipecat's WebSocket server transport and `ProtobufFrameSerializer`.
-- Pipecat is pinned to `pipecat-ai==1.16.0`. Core Parakh uses it only for the generated protobuf module; the agent installs `pipecat-ai[websocket,silero,groq]==1.16.0` from the uv dependency group `agent`. The agent runs its pipeline as a `PipelineWorker` under a `WorkerRunner` (`PipelineTask` and `PipelineRunner` are deprecated in 1.16). One long-lived pipeline and WebSocket server serve call after call, so a caller who connects right after the previous one hung up is accepted at once (an earlier pipeline-per-call design closed the server for about 0.3 s after each call, and a caller who connected then was cut off or refused). When a caller connects, the agent resets the per-call state: the LLM context messages, the booking store and both context aggregators. When a caller hangs up, it interrupts the pipeline, so a reply still in flight never reaches the next caller. The idle timeout is off, so an idle spell between calls does not end the pipeline. VAD and STT buffers are not reset, which matters only if a caller hangs up mid-utterance.
+- Pipecat is pinned to `pipecat-ai==1.16.0`. Core Parakh uses it only for the generated protobuf module; the agent installs `pipecat-ai[websocket,silero,groq]==1.16.0` from the uv dependency group `agent`. The agent runs its pipeline as a `PipelineWorker` under a `WorkerRunner` (`PipelineTask` and `PipelineRunner` are deprecated in 1.16). One long-lived pipeline and WebSocket server serve call after call, so a caller who connects right after the previous one hung up is accepted at once (an earlier pipeline-per-call design closed the server for about 0.3 s after each call, and a caller who connected then was cut off or refused). When a caller connects, the agent resets the per-call state: the LLM context messages, the booking store and both context aggregators. When a caller hangs up, it interrupts the pipeline, so a reply still in flight never reaches the next caller. The idle timeout is off, so an idle spell between calls does not end the pipeline. VAD and STT buffers are not reset, which matters when a caller hangs up mid-utterance or while the VAD hears noise: the stale segment can surface in the next call (EC-84). A per-call VAD and STT reset is on the backlog.
 - VAD: Silero (local, ONNX).
 - STT: Groq Whisper (`whisper-large-v3-turbo`, language hint `hi` for Hinglish scenarios). A local faster-whisper STT mode exists for runs with real recordings (D10).
 - LLM: a Groq chat model with function calling. The model id lives in config (`agents/clinic_agent/config.yaml`); the default is `openai/gpt-oss-20b`, because Groq no longer lists Llama 3.3. Alternatives Groq lists: `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`. The agent lists Groq's models at startup and exits with code 2 if a configured model is missing (EC-12). The system prompt states how the call opens (the agent greets first) and when it may end (EC-76).
-- TTS: a small custom Pipecat TTS service wrapping edge-tts (MP3 decoded to PCM via an ffmpeg pipe), voice `en-IN-NeerjaNeural` or `hi-IN-SwaraNeural`.
+- TTS: a small custom Pipecat TTS service wrapping edge-tts (MP3 decoded to PCM via an ffmpeg pipe), voice `hi-IN-SwaraNeural`, which reads Devanagari, English and Roman Hinglish. M1 used `en-IN-NeerjaNeural`, which returns no audio for Devanagari text, so a reply in Devanagari was silent (EC-83).
 - Emits RTVI transcription messages, so Parakh can read the agent's own transcript of the caller.
 - MVP tools are in-memory stubs. In M4 the tools call the mock HMS over HTTP.
 - The frozen scenario clock reaches the agent through a session-start message and through the HMS. In M1 the agent reads the same clock from its own `config.yaml` (equal to the scenario's `clock`); the session-start message arrives with the HMS in M4, where the clock first changes outcomes.
@@ -181,7 +198,13 @@ Parakh talks to it through an `EndStateAdapter` interface (`reset(seed, clock)`,
 
 **Latency**
 - Response latency per turn = first agent audio frame above -45 dBFS after the caller's speech end, minus the caller's speech end. Speech end is the send time of the frame holding `speech_end_ms`, not the end of the trailing silence.
-- Report p50, p90, p95 and max per run and per preset. Also barge-in stop latency (M2) and the agent's own TTFB metrics when it reports them.
+- Report p50, p90, p95 and max per run and per preset. Also barge-in stop latency and the agent's own TTFB metrics when it reports them.
+
+**Barge-in (M2)**
+- Stop latency, per barge-in turn, from the barge-in onset (the send time of the turn's first frame): the first of the agent's interruption frame and the end of the last loud agent audio before a 200 ms gap. Above 2000 ms the turn is `did_not_yield` and has no stop latency. If the reply ended before the barge-in point, the turn is `agent_finished_first` and is not scored as a stop.
+- Response latency of a yielded barge-in turn is measured from `max(speech end, onset + stop latency)`, so the agent's own tail of speech is not counted as slowness; a did-not-yield turn has no response latency.
+- False barge-ins: the agent's `user-started-speaking` message outside every caller turn plus 500 ms (or, if the agent sends none, its interruptions), reported as `false_barge_in_ms` per run (EC-25). The `Metrics` fields are `stop_latency`, `did_not_yield` and `false_barge_in_ms`.
+- Barge-in results do not change the exit code until the M4 thresholds (D12).
 
 **Recognition accuracy (WER)**
 - Measured only on the **agent's own transcript** of the caller (RTVI or `TranscriptionFrame`). If the agent does not expose one, WER is `null` with a reason. If it exposes one, a turn the caller played with no transcript gets per-turn WER 1.0 (EC-46); a turn never reached gets `null`. Whisper on the caller audio would measure Whisper, not the agent.
@@ -219,27 +242,30 @@ The normaliser ships with a golden test file of pairs that must match and pairs 
 - A token bucket per (provider, model) runs in-process. A daily counter lives in `.cache/quota/`. On HTTP 429, Parakh honours `Retry-After` and backs off exponentially. If retries run out, the run is marked `rate_limited` (not `failed`) and can be resumed. Completed scenarios are skipped on resume.
 - Groq limits are per organisation, so the agent's and the judge's calls share one pool. The estimate counts both.
 - A single choke point, `remote_call()`, refuses any payload tagged `real=True` (D10, EC-13).
-- M1 ships the estimate (`parakh budget`) and `remote_call()`, which guards edge-tts. The token bucket, daily counter and 429 backoff move to M3 (EC-10, EC-11), because Parakh makes no LLM or STT calls of its own until the judge arrives; in M1 only the agent calls Groq. The estimate counts one STT request per caller turn and one LLM request per agent reply, and real use is higher: the Hinglish scenario is estimated at 4 STT and 5 LLM requests, and each completed real run used 11 STT and 8 to 10 LLM requests, because the agent's Groq STT runs once per VAD segment and tool calls add LLM turns.
+- M1 ships the estimate (`parakh budget`) and `remote_call()`, which guards edge-tts. The token bucket, daily counter and 429 backoff move to M3 (EC-10, EC-11), because Parakh makes no LLM or STT calls of its own until the judge arrives; in M1 only the agent calls Groq. M1 counted one STT request per caller turn and one LLM request per agent reply, and real use was higher: the Hinglish scenario was estimated at 4 STT and 5 LLM requests, and each completed real run used 11 STT and 8 to 10 LLM requests, because the agent's Groq STT runs once per VAD segment and tool calls add LLM turns. From M2 the estimate counts 3 STT and 3 LLM requests per caller turn, plus 1 LLM request for the greeting, times the number of presets. The seven M2 runs used 54 STT and 63 LLM requests against an estimate of 84 and 91, with no 429; noise presets can add STT requests when the agent's VAD reacts to the noise, so the estimate is a guide, not a bound.
 
 ### 6.9 Report
 
 - `report.json`: versioned pydantic schema. It holds run metadata (Parakh version, git sha, scenario, preset, seed, agent URL, model ids, pacing jitter), per-turn events, metrics, task result, judge result and warnings.
 - `report.html`: one self-contained file built with Jinja2. Inline CSS, inline SVG charts (latency per turn, WER clean vs presets), audio players that link to the WAVs in the run directory, and a transcript with per-turn diffs.
-- A comparison page across presets and scenarios. This is the main story: how the agent degrades from `clean` to `bad_line`.
+- A comparison page across presets and scenarios (M2, `src/parakh/report/compare.py`). This is the main story: how the agent degrades from `clean` to `bad_line`. `compare.html` has one table per scenario with a column per preset (status, strict and loose WER, latency p50 and p95, barge-in stop latency, did-not-yield count, false barge-ins, a link to the run's `report.html`) and two bar charts, loose WER and latency p50 by preset. `compare.json` holds the same numbers.
+- Batch layout: a run of more than one scenario or preset writes `runs/<batch_id>/<run_id>/` for each run, scenario-major with the presets back to back, and `compare.html` and `compare.json` in `runs/<batch_id>/`, rewritten after every run. Runs are 3 s apart (`BATCH_GAP_S`), a workaround for agents that keep VAD and STT state across calls (EC-84). A single run keeps the M1 layout, `runs/<run_id>/`.
+- Per-turn degradation (SNR at mixing, lost and total frames, clipped samples) and barge-in results are shown in `report.html` and stored in `report.json`. The new report fields have defaults, so M1 reports still load (`schema_version` stays 1).
 
 ### 6.10 CLI
 
 Typer. Core commands:
 - `parakh tts build <scenarios>`
-- `parakh degrade <clip> --preset`
-- `parakh run <scenario|dir> --agent ws://... --preset ...`
+- `parakh degrade <clip> --preset <name> [--out] [--rate] [--seed] [--cache-dir]`
+- `parakh run <scenario|dir> --agent ws://... --preset <name> ...`
+- `parakh compare <run_dir>... [--out]`
 - `parakh report <run_dir>`
-- `parakh budget <scenario|dir> --presets ...`
+- `parakh budget <scenario|dir> --preset <name> ...`
 - `parakh hms serve` (M4)
 
 Exit codes: 0 means everything passed; 1 means a task failed; 2 means an infrastructure problem (timeout, rate limit, timing unreliable).
 
-M1 ships `version`, `tts build`, `run`, `report` and `budget <scenario|dir>`; `run` accepts only `--preset clean`. `degrade` and `--presets` come with M2, `hms serve` with M4. Until task success exists (M4), exit 1 means the agent hung up before the first caller turn (`agent_hung_up_early`); every other non-completed status, and `timing_unreliable`, is 2. Errors before a call starts (invalid scenario, ffmpeg missing, caller audio that cannot be synthesised or decoded) and the errors of `tts build` and `report` (including a `report.json` that is not UTF-8) print a message without a traceback and exit 2.
+M1 shipped `version`, `tts build`, `run`, `report` and `budget`, with `run` accepting only `--preset clean`. M2 adds `degrade` and `compare`, and `--preset` on `run` and `budget` takes every preset: one repeatable option, with `all` meaning the five presets in comparison order (it replaces the planned `--presets`). `hms serve` comes with M4. `degrade` writes `<clip>.<preset>.wav` (or `--out`) and prints the SNR, lost frames and clipped samples; it scales the noise to that clip's own slice, so its printed SNR equals the target. More than one run (several presets or a scenario directory) is a batch: `run dir:` is printed as each run starts, `comparison:` at the end, and the exit code is the highest of its runs. Ctrl+C stops the batch, writes a partial report for the run in progress (status `interrupted`) and the comparison, prints the comparison path and exits 2. Until task success exists (M4), exit 1 means the agent hung up before the first caller turn (`agent_hung_up_early`); every other non-completed status, and `timing_unreliable`, is 2. Errors before a call starts (invalid scenario, ffmpeg missing, caller audio that cannot be synthesised or decoded) and the errors of `tts build` and `report` (including a `report.json` that is not UTF-8) print a message without a traceback and exit 2.
 
 ## 7. Repo layout
 
@@ -287,7 +313,7 @@ Targets: 85 % line coverage on `score/`, `degrade/` and `caller/`. Unit and inte
 |---|---|---|
 | M0 | Foundations and Task 1 run | Repo hygiene files in place (`.gitignore`, `.gitattributes`, `.env.example`, `pyproject`, `uv.lock`, pre-commit with gitleaks, MIT `LICENSE`, README stub, `ci.yml` skeleton). Calibrate installed in WSL. One text simulation run on an OpenRouter `:free` model. Results added to the Calibrate analysis and the verdict finalised. Free Groq key created and stored in `.env`. |
 | M1 | MVP: one scenario, clean audio, Pipecat agent, latency + WER | `parakh run scenarios/hinglish/clinic-book-hinglish-01.yaml --preset clean` against `agents/clinic_agent` writes `report.json` and `report.html` with per-turn latency and strict and loose WER. Loose WER already handles Devanagari hypotheses, because Groq Whisper with language `hi` returns Devanagari. Unit and integration tests pass on Windows and Ubuntu. **Met 2026-11-17:** run `6b5d9138` (Parakh `63add5c`) completed with exit 0 over 4 turns: latency p50 4808 ms and p95 6769 ms, strict WER 100.0 %, loose WER 16.7 % ([runbook](../../runbooks/run-m1.md)). |
-| M2 | Degradation presets and interruptions | All five presets. Barge-in turns and stop latency. Comparison page across presets. Degrader tests meet the tolerances above. |
+| M2 | Degradation presets and interruptions | All five presets. Barge-in turns and stop latency. Comparison page across presets. Degrader tests meet the tolerances above. **Met 2026-11-21** ([runbook](../../runbooks/run-m2.md)): all five presets ran against the clinic agent. Batch `cb4a98c6` (booking scenario, Parakh `35afb4a`): `phone` completed at loose WER 20.0 % and p50 2811 ms, `phone_lossy` at 30.0 % and 3200 ms, `bad_line` at 100.0 % and 2878 ms; `clean` timed out on an empty LLM reply and `phone_noisy` never greeted, because the agent's VAD takes babble for speech (EC-25). In batch `7eb38dc8`, `clean` completed at 16.7 % and 4196 ms. Batch `e4935d41` (barge-in scenario): stop latency 362 ms on `clean` and 419 ms on `phone`, both through the interruption frame, at loose WER 10.0 % and 3.3 %. Seven runs used 54 STT and 63 LLM requests, with no 429. |
 | M3 | Indic layer | Normaliser hardened against a golden set of at least 150 pairs. 10-20 Hinglish scenarios. LLM judge. Then Kannada-English and Tamil-English scenarios (edge-tts `kn-IN`, `ta-IN` voices). Small real-recording set (D10). Indic Parler-TTS benchmarked; adopted as an offline engine if fast enough. |
 | M4 | HMS adapter and GitHub Actions | Mock HMS service, `EndStateAdapter`, task success in reports, agent tools wired to the HMS. Threshold flags set the exit code (D12). `e2e.yml` green on a manual run. |
 | M5 | Public release | README with quick start and screenshots, scenario pack (see D9), comparison run (see D13), tagged release. |
@@ -316,7 +342,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 ### Free tiers and quotas
 | ID | Edge case | Handling | M |
 |---|---|---|---|
-| EC-10 | Groq Whisper limits (20 RPM, 2,000 RPD, 7,200 audio-seconds per hour) are shared by the agent and the judge at org level. | Budget estimate, token buckets, daily counter (6.8). The estimate ships in M1. Token buckets and the daily counter move to M3, because Parakh makes no LLM or STT calls of its own in M1 (only the agent does) and the judge is its first. The M1 estimate undercounts real use (4 STT and 5 LLM requests estimated, 11 STT and 8 to 10 LLM observed per run), because Groq STT runs once per VAD segment and tool calls add LLM turns; the runbook gives the observed figures. | M1/M3 |
+| EC-10 | Groq Whisper limits (20 RPM, 2,000 RPD, 7,200 audio-seconds per hour) are shared by the agent and the judge at org level. | Budget estimate, token buckets, daily counter (6.8). The estimate ships in M1. Token buckets and the daily counter move to M3, because Parakh makes no LLM or STT calls of its own in M1 (only the agent does) and the judge is its first. The M1 estimate undercounts real use (4 STT and 5 LLM requests estimated, 11 STT and 8 to 10 LLM observed per run), because Groq STT runs once per VAD segment and tool calls add LLM turns; the runbook gives the observed figures. M2 raises the estimate to 3 STT and 3 LLM requests per caller turn (6.8). | M1/M3 |
 | EC-11 | HTTP 429 mid-run. | Retry-After plus backoff. Status `rate_limited`, resumable. Moved to M3 with EC-10: in M1 a 429 can only hit the agent, and the runbook says to stop and record it. | M3 |
 | EC-12 | A free model is renamed, deprecated or re-tiered. | Model ids in config only. List models at startup. Ids recorded in every report. | M1 |
 | EC-13 | Gemini free tier trains on inputs. | Synthetic data only. `remote_call()` refuses payloads tagged `real`. | M1 |
@@ -330,12 +356,12 @@ Grouped by area. The "M" column is the milestone that handles it.
 |---|---|---|---|
 | EC-20 | edge-tts gives 24 kHz MP3 with padding silence. | ffmpeg decode to 16 kHz mono s16. Trim the padding and record `speech_end_ms`. | M1 |
 | EC-21 | The agent expects 8, 16 or 24 kHz. | Rate set in config, resampled both ways, `sample_rate` set on every frame. | M1 |
-| EC-22 | Mu-law encoding clips loud input. | Peak-normalise to -3 dBFS. Count clipped samples. | M2 |
-| EC-23 | Aliasing when resampling. | `resample_poly` with an anti-alias filter. Sine-sweep test. | M2 |
-| EC-24 | SNR undefined on a silent clip. | Speech-active RMS. Guard against a zero denominator. | M2 |
-| EC-25 | The noise bed triggers the agent's VAD (false barge-in). | Expected behaviour, worth testing. Recorded as `false_barge_in` events. | M2 |
-| EC-26 | Packet loss must be reproducible. | Seed from scenario id, preset and turn index. | M2 |
-| EC-27 | The agent sends silent frames. | -45 dBFS threshold for "agent speaking", in turn-taking (the playback clock's `loud_end`, 6.4) and in latency scoring (6.7). Silent frames are still recorded and placed on the agent track. | M1 |
+| EC-22 | Mu-law encoding clips loud input. | Peak-normalise to -3 dBFS before the codec. Clipped and saturated samples are counted per turn (`clipped_samples`). | M2 |
+| EC-23 | Aliasing when resampling. | `resample_poly` with an anti-alias filter. Sine-sweep tests: aliasing suppressed by at least 50 dB, output power above 4 kHz at least 40 dB down. | M2 |
+| EC-24 | SNR undefined on a silent clip. | Speech-active RMS over 10 ms windows above -45 dBFS, with a guard against a zero denominator. A silent turn gets `snr_db: null`; a call whose clips are all silent fails before the call with `DegradeError`. | M2 |
+| EC-25 | The noise bed triggers the agent's VAD (false barge-in). | Expected behaviour, worth testing. Computed as false barge-ins: the agent's `user-started-speaking` (or its interruptions, if it sends none) outside every caller turn plus 500 ms, reported as `false_barge_in_ms` (6.7). Observed: under `phone_noisy` the clinic agent's VAD takes the babble for speech within 0.5 s and never greets; all three `phone_noisy` runs ended `turn_timeout` with one false barge-in each. | M2 |
+| EC-26 | Packet loss and noise must be reproducible. | Seed from the sha256 of scenario id and preset, with one generator per part (`noise`, `bed`, `turn-<i>`), so the same seed gives the same bytes (tested). | M2 |
+| EC-27 | The agent sends silent frames. | -45 dBFS threshold for "agent speaking", in turn-taking (the playback clock's `loud_end`, 6.4) and in latency scoring (6.7). Silent frames are still recorded and placed on the agent track, but a silent frame that arrives behind queued audio is not placed on the playback timeline, so streamed silence never delays later speech (M2). | M1/M2 |
 | EC-28 | The agent sends audio faster than real time. | Virtual playback clock (6.4). | M1 |
 | EC-29 | Echo of agent audio into the caller's mic. | Out of scope. Listed as a future preset. | — |
 
@@ -349,7 +375,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-34 | The agent asks for details in a different order than the script. | MVP: linear script, and the judge flags drift. Later, `on_agent_says` triggers that pick the matching turn. | M1/M3 |
 | EC-35 | Agent-first vs caller-first calls. | `agent_speaks_first`. Caller-first waits 1 s of line silence. | M1 |
 | EC-36 | The agent pauses between TTS sentences in one reply. | 800 ms end-of-turn silence. RTVI `bot-stopped-speaking` preferred when present. | M1 |
-| EC-37 | `InterruptionFrame` may never be sent. | Stop latency also from audio stopping. `did_not_yield` after 2 s. | M2 |
+| EC-37 | `InterruptionFrame` may never be sent. | Stop latency is the first of the interruption frame and the end of the last loud agent audio before a 200 ms gap, so an agent that only stops its audio still gets a result. Above 2 s the turn is `did_not_yield`. The report says which signal ended it (`interruption` or `audio`). | M2 |
 | EC-38 | RTVI message formats change between Pipecat versions. | Pin `pipecat-ai`, parse defensively, log unknown messages. | M1 |
 | EC-39 | Wall-clock jumps (NTP, sleep). | Monotonic clock for all durations. | M1 |
 
@@ -390,7 +416,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-61 | Calibrate code contamination (CC-BY-SA). | Never copy. Clone only in scratch or WSL. A clean-room note in CONTRIBUTING. | all |
 | EC-62 | edge-tts is LGPL-3.0. | Unmodified dependency, never vendored. | M1 |
 | EC-63 | Microsoft's terms for redistributing edge-tts audio are unclear. | Publish scenario text and the build script, not edge-tts audio. Publish audio only from Parler (Apache-2.0) (D9). | M5 |
-| EC-64 | Noise dataset licences (DEMAND is CC-BY-SA, MUSAN is mixed). | Synthetic noise and own-TTS babble only in the repo. User files stay local. | M2 |
+| EC-64 | Noise dataset licences (DEMAND is CC-BY-SA, MUSAN is mixed). | Synthetic white, pink and brown noise and own-TTS babble of invented text only. No noise dataset is downloaded. User-supplied noise files are not in M2 (backlog). | M2 |
 
 ### CI
 | ID | Edge case | Handling | M |
@@ -403,11 +429,16 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-75 | A third-party Action or pre-commit hook tag is moved to malicious code (supply chain). Hooks run on the laptop, where `.env` holds the real key. | Every workflow `uses:` and every pre-commit `rev:` pinned to a full commit SHA with the version as a comment; `tests/unit/test_supply_chain_pins.py` fails on any unpinned one. Dependabot (`.github/dependabot.yml`) proposes weekly Action pin updates; hook pins are bumped with `pre-commit autoupdate --freeze`, checking that the ruff hook matches `uv.lock`. | M0 |
 | EC-76 | The agent LLM hangs up before the caller speaks (seen in the Task 1 run: an end-call tool called on the first turn). | The test agent's system prompt states how the call opens and when it may end; the call driver reports a hang-up before the first caller turn as its own failure reason, not as a silent pass or a timeout. | M1 |
 | EC-77 | Hosted LLM latency swings within one run (Task 1 saw TTFB from 0.8 s to 58 s on an OpenRouter `:free` model). | The report records the agent's LLM model and, when the agent reports it, its own per-turn TTFB beside end-to-end latency, so provider delay is visible; preset comparisons run back to back in one session. | M1 |
-| EC-78 | The agent reports one utterance twice (seen in the M1 run on Pipecat 1.16: each transcription as `user-input` and as the deprecated `user-transcription`; each spoken bot-output segment as `new` and again as `completed` under one `segment_id`). Counting both doubled every transcript and scored loose WER at 120 %. | The call driver records each once (`RtviRepeats` in `src/parakh/transport/codec.py`): bot-output segments by `segment_id`, and a transcript twin when it has the other type with the same text, final flag and timestamp. Each repeat is logged as an `rtvi_repeat` event, so the drop can be audited in `events.jsonl`. | M1 |
+| EC-78 | The agent reports one utterance twice (seen in the M1 run on Pipecat 1.16: each transcription as `user-input` and as the deprecated `user-transcription`; each spoken bot-output segment as `new` and again as `completed` under one `segment_id`). Counting both doubled every transcript and scored loose WER at 120 %. | The call driver records each once (`RtviRepeats` in `src/parakh/transport/codec.py`): bot-output segments by `segment_id`, and a transcript twin when it has the other type with the same text, final flag and timestamp. Each repeat is logged as an `rtvi_repeat` event, so the drop can be audited in `events.jsonl`. M2 adds the protobuf `TranscriptionFrame` as a third source of the same transcript, and a twin pair that is found is consumed, so a caller who really says "haan" twice keeps both. | M1/M2 |
 | EC-79 | Whisper writes a spoken number as digit groups ("9845 012 345" for a 10-digit phone number). | The normaliser joins adjacent digit tokens, and the HTML marks a run of number words as one number, so the marks agree with loose WER. | M1 |
 | EC-80 | A provider request inside the agent fails mid-call (seen in the M1 run: a Groq STT request timed out, so the agent never answered that turn). | The call ends as `turn_timeout` with a full report; the runbook says to check the agent log and run again. Never retried silently. | M1 |
 | EC-81 | A blocking file write or flush on the event loop delays outgoing frames on Windows (NTFS and filter drivers can stall one write for 30 ms or more), which shows up as pacer jitter. | The recorder queues event lines to a writer thread that appends and flushes them; `close()` waits for the thread and raises a deferred write error. | M1 |
 | EC-82 | An agent URL can carry credentials or tokens (userinfo, query string, fragment), which would leak into reports, logs and console output. | `redact_url()` keeps scheme, host, port and path and drops userinfo, query and fragment everywhere Parakh stores or prints the URL: `report.json`, `report.html`, CLI messages and error warnings. The text of an agent's RTVI `error` message, recorded as a warning, has every URL in it redacted the same way. A token embedded in the URL path (for example `wss://host/agent/<token>`) is not redacted; pass tokens in the query string or userinfo instead. | M1 |
+| EC-83 | The test agent's TTS voice `en-IN-NeerjaNeural` returns no audio for Devanagari text (edge-tts `NoAudioReceived`), and the agent's LLM often answers a Devanagari transcript in Devanagari, so the agent went silent (seen in M2: 4 of 5 runs of batch `1e9eaf4f` ended `turn_timeout`). | The agent speaks with `hi-IN-SwaraNeural`, which reads Devanagari, English and Roman Hinglish. | M2 |
+| EC-84 | A call that ends while the agent's VAD hears noise leaves a speech segment that Pipecat closes about 0.4 s later and Groq transcribes about 0.8 s after that. Back to back, the transcript became the next call's first caller turn (batch `7eb38dc8`, `phone_lossy`). The agent keeps its VAD and STT state across calls (6.5). | Batch runs are 3 s apart (`BATCH_GAP_S`), enough for this agent to close and transcribe the stale segment, and the next call's context reset clears it. This is a workaround, not a fix: in batch `cb4a98c6` the agent's VAD still fired 13 ms after accepting the `phone_lossy` call, on state left by the babble call, and a two-word fragment became part of turn 1. A run that follows `phone_noisy` can carry a fragment of it. A per-call VAD and STT reset in the clinic agent is on the backlog. | M2 |
+| EC-85 | The agent's LLM sometimes answers with empty content and no tool call, so a turn gets no reply (batch `cb4a98c6`, `clean`). | The call ends as `turn_timeout` with a full report (EC-80); never retried silently. Run-to-run variation is large, so compare across batches, not one run. | M2 |
+| EC-86 | A reply that needs two tool calls after a 2.7 s end-of-turn wait took about 9 s, over the old 8 s response timeout (batch `7eb38dc8`, `phone`). | The Hinglish scenarios set `response_timeout_s: 15` (6.1), so a slow tool-chain reply is measured as latency instead of ending the call. | M2 |
+| EC-87 | Low system memory stops the agent mid-batch: Claude Code stops background commands when memory is critically low. | The runbook says to close heavy programs and restart the agent. A run that never started leaves nothing behind, and `parakh compare` joins old and new run directories in one page. | M2 |
 
 ## 12. Decisions
 
@@ -436,6 +467,8 @@ My calls, for Yatin to check:
 - Reusable GitHub Action and a PyPI release, for use as a CI gate in other people's agent repos.
 - Telephony WebSocket formats (Twilio, Exotel, Plivo media streams) as transport adapters.
 - LLM-driven caller mode (D4).
+- User-supplied noise files and user-defined presets (EC-64).
+- A per-call VAD and STT reset in the clinic agent (EC-84).
 - Echo preset (EC-29). `on_agent_says` turn triggers if M3 does not cover them (EC-34).
 
 ## 14. Left to the builder

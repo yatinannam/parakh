@@ -23,6 +23,7 @@ Components and externals, with the edges between them.
 flowchart LR
   budget["Budget + quota guard"]
   call_driver["Call driver"]
+  caller_line["Caller line"]
   ci["GitHub Actions"]
   cli["CLI"]
   degrader["Degrader"]
@@ -31,7 +32,9 @@ flowchart LR
   mock_hms["Mock HMS"]
   normalizer["Script-tolerant normaliser"]
   report["Report"]
+  report_compare["Comparison page"]
   scenario["Scenario loader"]
+  score_bargein["Barge-in scorer"]
   score_latency["Latency scorer"]
   score_task["Task success"]
   score_wer["WER scorer"]
@@ -55,24 +58,31 @@ flowchart LR
   x_whisper{{"faster-whisper small int8"}}
   x_wsl{{"WSL2 Ubuntu"}}
   budget -->|constrained_by| x_groq
+  call_driver -->|depends_on| caller_line
   call_driver -->|produces| judge
+  call_driver -->|produces| score_bargein
   call_driver -->|produces| score_latency
   call_driver -->|produces| score_wer
   call_driver -->|calls| test_agent
   call_driver -->|calls| transport_codec
+  caller_line -->|calls| degrader
+  caller_line -->|depends_on| tts_cache
   ci -->|calls| cli
   ci -->|calls| t_kg_render
   ci -->|calls| t_no_emoji
   cli -->|calls| budget
   cli -->|calls| call_driver
+  cli -->|calls| report_compare
   degrader -->|produces| call_driver
   end_state_adapter -->|calls| mock_hms
   judge -->|produces| report
   judge -->|calls| x_gemini
   judge -->|calls| x_groq
   normalizer -->|depends_on| x_indic_translit
+  report -->|produces| report_compare
   report -->|depends_on| x_whisper
   scenario -->|produces| tts_cache
+  score_bargein -->|produces| report
   score_latency -->|produces| report
   score_task -->|depends_on| end_state_adapter
   score_task -->|produces| report
@@ -124,6 +134,7 @@ flowchart TB
   d6[/"D6 Judge Groq then Gemini"/]
   d8[/"D8 KG as YAML + Mermaid"/]
   d9[/"D9 Pack ships text, not edge-tts audio"/]
+  degrader["Degrader"]
   doc_calibrate[("Calibrate analysis")]
   doc_contributing[("CONTRIBUTING")]
   doc_pipecat_evals[("pipecat.evals note")]
@@ -143,6 +154,7 @@ flowchart TB
   r_windows_install>"Windows install gaps"]
   report["Report"]
   scenario["Scenario loader"]
+  score_bargein["Barge-in scorer"]
   score_wer["WER scorer"]
   t_calibrate_eval["Calibrate free-model wrapper"]
   t_check_keys["Key check"]
@@ -172,6 +184,7 @@ flowchart TB
   d14 -->|documented_in| doc_pipecat_evals
   d14 -->|documented_in| doc_spec
   d9 -->|mitigates| r_license
+  degrader -->|mitigates| r_license
   judge -->|constrained_by| c_synthetic
   judge -->|decided_by| d6
   judge -->|mitigates| r_injection
@@ -181,6 +194,7 @@ flowchart TB
   r_llm_behaviour -->|documented_in| doc_calibrate
   report -->|mitigates| r_llm_behaviour
   scenario -->|decided_by| d4
+  score_bargein -->|mitigates| r_timing
   score_wer -->|decided_by| d11
   score_wer -->|mitigates| r_alignment
   t_calibrate_eval -->|constrained_by| c_free
@@ -238,7 +252,10 @@ flowchart LR
   end
   subgraph g_m2[" "]
     m2(("M2 Degradation + interruptions"))
+    caller_line["Caller line"]
     degrader["Degrader"]
+    report_compare["Comparison page"]
+    score_bargein["Barge-in scorer"]
   end
   subgraph g_m3[" "]
     m3(("M3 Indic layer + judge"))

@@ -6,7 +6,7 @@
 # Edge rels:  depends_on, calls, produces, consumes, constrained_by,
 #             decided_by, mitigates, documented_in, delivered_in, compatible_with
 schema_version: 1
-updated: 2026-11-17
+updated: 2026-11-21
 
 nodes:
   # --- constraints (CLAUDE.md) ---
@@ -20,20 +20,23 @@ nodes:
   # --- components ---
   - {id: scenario, type: component, label: "Scenario loader", summary: "M1: YAML validated by pydantic (schema_version 1); BOM and CRLF accepted; ref defaults to say; frozen clock with timezone; limits.", path: src/parakh/scenario}
   - {id: tts_cache, type: component, label: "Caller TTS + cache", summary: "M1: edge-tts MP3 decoded by ffmpeg to 16 kHz mono; silence trimmed; speech_end_ms at -45 dBFS; sha256 content cache in .cache/tts. Parler later.", path: src/parakh/tts}
-  - {id: degrader, type: component, label: "Degrader", summary: "Band-limit, 8 kHz, mu-law, noise at SNR, packet loss, clipping; seeded presets.", path: src/parakh/degrade}
-  - {id: call_driver, type: component, label: "Call driver", summary: "M1: 20 ms absolute-deadline pacer (p99 jitter above 30 ms marks timing unreliable), virtual playback clock (only frames above -45 dBFS count as agent speech, EC-27), turn machine (800 ms silence or bot-stopped-speaking), recorder writing events.jsonl from a thread plus caller.wav and agent.wav. Barge-in in M2.", path: src/parakh/caller}
-  - {id: transport_codec, type: component, label: "Transport + codec", summary: "M1: Pipecat protobuf frames over a ws:// or wss:// WebSocket; defensive RTVI parsing; RtviRepeats records each Pipecat 1.16 repeat once (EC-78); agent URL redaction (EC-82).", path: src/parakh/transport}
-  - {id: test_agent, type: component, label: "Clinic test agent", summary: "M1: Pipecat 1.16 bot with ProtobufFrameSerializer: Silero VAD, Groq whisper-large-v3-turbo (hi), openai/gpt-oss-20b with in-memory booking tools, edge-tts en-IN-NeerjaNeural; one long-lived PipelineWorker serves back-to-back calls, per-call state reset on connect; RTVI metrics on.", path: agents/clinic_agent}
+  - {id: degrader, type: component, label: "Degrader", summary: "M2: five presets from presets.yaml (clean, phone, phone_noisy, phone_lossy, bad_line). Stages: peak-normalise to -3 dBFS, noise at SNR (white, pink, brown, own-TTS babble; level set once per call), hard clip, 300-3400 Hz band-pass, 8 kHz, own G.711 mu-law (byte-identical to ffmpeg), packet loss (independent or Gilbert bursts), resample to agent rate. Seeds from sha256 parts; per-turn SNR, lost frames and clipped samples reported.", path: src/parakh/degrade}
+  - {id: call_driver, type: component, label: "Call driver", summary: "M1: 20 ms absolute-deadline pacer (p99 jitter above 30 ms marks timing unreliable), virtual playback clock (only frames above -45 dBFS count as agent speech, EC-27), turn machine (800 ms silence or bot-stopped-speaking), recorder writing events.jsonl from a thread plus caller.wav and agent.wav. M2: silent frames behind queued audio are not placed, flush on the agent's interruption frame, reply onsets (200 ms gap), caller_frame events with a lost flag, scheduled barge-in (barge_in and barge_in_missed events), bot-stopped hold discarded at a caller turn's end, noise bed streamed between turns.", path: src/parakh/caller}
+  - {id: transport_codec, type: component, label: "Transport + codec", summary: "M1: Pipecat protobuf frames over a ws:// or wss:// WebSocket; defensive RTVI parsing; RtviRepeats records each Pipecat 1.16 repeat once (EC-78); agent URL redaction (EC-82). M2: events.py maps agent events, stereo agent audio is downmixed, unsupported agent rates are a protocol error, the protobuf TranscriptionFrame is a twin source and a found twin pair is consumed (EC-78), Pipecat import banner silenced.", path: src/parakh/transport}
+  - {id: test_agent, type: component, label: "Clinic test agent", summary: "M1: Pipecat 1.16 bot with ProtobufFrameSerializer: Silero VAD, Groq whisper-large-v3-turbo (hi), openai/gpt-oss-20b with in-memory booking tools, edge-tts (M1 en-IN-NeerjaNeural, silent on Devanagari; M2 hi-IN-SwaraNeural, EC-83); one long-lived PipelineWorker serves back-to-back calls, per-call state reset on connect; RTVI metrics on.", path: agents/clinic_agent}
   - {id: mock_hms, type: component, label: "Mock HMS", summary: "Hospital management system stub: FastAPI + SQLite; reset/state.", path: services/mock_hms}
   - {id: end_state_adapter, type: component, label: "EndStateAdapter", summary: "reset(seed, clock), fetch_state(). MockHmsAdapter first.", path: src/parakh/adapters}
-  - {id: score_latency, type: component, label: "Latency scorer", summary: "M1: caller speech end to the first agent frame above -45 dBFS before the next turn; p50, p90, p95, max. Barge-in stop latency in M2.", path: src/parakh/score/latency.py}
+  - {id: score_latency, type: component, label: "Latency scorer", summary: "M1: caller speech end to the first agent frame above -45 dBFS before the next turn; p50, p90, p95, max. M2 adds a barge-in turn's latency from max(speech end, onset + stop latency); a did-not-yield turn has none.", path: src/parakh/score/latency.py}
+  - {id: score_bargein, type: component, label: "Barge-in scorer", summary: "M2: stop latency from the barge-in onset (first of the interruption frame and the end of the last loud audio before a 200 ms gap), did_not_yield above 2000 ms, agent_finished_first, false barge-ins outside caller turns plus 500 ms (EC-25, EC-37).", path: src/parakh/score/bargein.py}
   - {id: normalizer, type: component, label: "Script-tolerant normaliser", summary: "M1: NFC and zero-width removal, Devanagari to ITRANS (nasal to n, candra o, final schwa), number words to digits with joined groups, loose phonetic key, variant table, consonant-skeleton match. Hardened to 150+ golden pairs in M3.", path: src/parakh/score/normalize.py}
   - {id: score_wer, type: component, label: "WER scorer", summary: "M1: strict and loose WER plus loose CER on the agent's own transcript; own Levenshtein with the loose equality; turns grouped by time window; conversation-level loose WER is the headline.", path: src/parakh/score/wer.py}
   - {id: score_task, type: component, label: "Task success", summary: "Final HMS state vs expect; pass/fail + diff.", path: src/parakh/score}
   - {id: judge, type: component, label: "LLM judge", summary: "Groq first, Gemini fallback; JSON rubric; advisory only.", path: src/parakh/judge}
   - {id: budget, type: component, label: "Budget + quota guard", summary: "M1: Groq request estimate per scenario and the remote_call() choke point (guards edge-tts). Token buckets, daily counter and 429 backoff in M3 (EC-10, EC-11).", path: src/parakh/budget}
-  - {id: report, type: component, label: "Report", summary: "M1: report.json (schema_version 1) and a self-contained, escaped report.html with per-turn latency, strict and loose WER, marked misses and agent TTFB. Preset comparison in M2.", path: src/parakh/report}
-  - {id: cli, type: component, label: "CLI", summary: "M1 Typer commands: version, tts build, run, report, budget. Exit 0 completed, 1 agent hung up early, 2 infrastructure. degrade in M2, hms serve in M4.", path: src/parakh/cli.py}
+  - {id: report, type: component, label: "Report", summary: "M1: report.json (schema_version 1) and a self-contained, escaped report.html with per-turn latency, strict and loose WER, marked misses and agent TTFB. M2 adds per-turn degradation and barge-in lines and builds the comparison page (compare.html, compare.json) across presets; assembly moved to report/build.py.", path: src/parakh/report}
+  - {id: caller_line, type: component, label: "Caller line", summary: "M2: renders every turn through the degrader plus a 10 s noise bed before the call, with one noise level per call from all peak-normalised clips; the call driver streams the bed between turns and logs each frame as caller_frame.", path: src/parakh/caller/line.py}
+  - {id: report_compare, type: component, label: "Comparison page", summary: "M2: compare.html and compare.json across presets and scenarios (status, strict and loose WER, latency p50 and p95, stop latency, did-not-yield, false barge-ins; WER and latency bar charts), rewritten after every run of a batch.", path: src/parakh/report/compare.py}
+  - {id: cli, type: component, label: "CLI", summary: "M1 Typer commands: version, tts build, run, report, budget. Exit 0 completed, 1 agent hung up early, 2 infrastructure. M2: degrade, compare, repeatable --preset (or all) on run and budget, batch runs with the highest exit code, Ctrl+C exits 2. hms serve in M4.", path: src/parakh/cli.py}
   - {id: ci, type: component, label: "GitHub Actions", summary: "ci.yml: test (ubuntu, windows), secrets (gitleaks); e2e.yml in M4.", path: .github/workflows}
 
   - {id: t_no_emoji, type: component, label: "No-emoji guard", summary: "Fails on emoji in tracked text files; run in pre-commit and CI.", path: tools/no_emoji.py}
@@ -81,7 +84,7 @@ nodes:
   - {id: r_privacy, type: risk, label: "Real data leakage", summary: "EC-13, EC-60; EC-82 agent URL credentials redacted."}
   - {id: r_windows_install, type: risk, label: "Windows install gaps", summary: "EC-01, EC-03, EC-06, EC-07."}
   - {id: r_supply_chain, type: risk, label: "Supply chain (CI and hooks)", summary: "EC-75: moved Action or hook tags. Actions and pre-commit hooks SHA-pinned, guarded by tests/unit/test_supply_chain_pins.py; Dependabot for Actions."}
-  - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings (both seen in the Task 1 run), EC-80 a provider request failing mid-call (seen in M1)."}
+  - {id: r_llm_behaviour, type: risk, label: "Hosted LLM behaviour", summary: "EC-76 hang-up before the caller speaks, EC-77 latency swings (both seen in the Task 1 run), EC-80 a provider request failing mid-call (seen in M1), EC-83 to EC-87 (seen in M2: a TTS voice silent on Devanagari, a stale VAD segment leaking into the next call, an empty LLM reply, a slow tool-chain reply, low memory)."}
 
   # --- docs ---
   - {id: doc_spec, type: doc, label: "Design spec", path: docs/superpowers/specs/2026-11-15-parakh-design.md}
@@ -94,12 +97,14 @@ nodes:
   - {id: doc_review_m1, type: doc, label: "M1 review", path: docs/reviews/2026-11-17-m1-review.md}
   - {id: doc_contributing, type: doc, label: "CONTRIBUTING", path: CONTRIBUTING.md}
   - {id: doc_plan_m1, type: doc, label: "M1 plan", path: docs/superpowers/plans/2026-11-16-m1-mvp.md}
+  - {id: doc_plan_m2, type: doc, label: "M2 plan", path: docs/superpowers/plans/2026-11-19-m2-degradation.md}
+  - {id: doc_runbook_m2, type: doc, label: "M2 run runbook", path: docs/runbooks/run-m2.md}
   - {id: doc_pipecat_evals, type: doc, label: "pipecat.evals note", path: docs/research/2026-11-16-pipecat-evals-note.md}
 
   # --- milestones ---
   - {id: m0, type: milestone, label: "M0 Foundations + Task 1 run", summary: "Complete 2026-11-16: repo hygiene, CI, tools, Groq key check, Calibrate text sim on free models, final verdict."}
   - {id: m1, type: milestone, label: "M1 MVP clean, latency + WER", summary: "Complete 2026-11-17: run 6b5d9138 against the clinic agent completed with exit 0; 4 turns, latency p50 4808 ms, p95 6769 ms, strict WER 100.0 %, loose WER 16.7 %. pipecat-ai 1.16.0; own call driver (D14)."}
-  - {id: m2, type: milestone, label: "M2 Degradation + interruptions"}
+  - {id: m2, type: milestone, label: "M2 Degradation + interruptions", summary: "Complete 2026-11-21: five presets, barge-in with stop latency, comparison page, batch runs, degrade and compare commands. Batch cb4a98c6: phone loose WER 20.0 % (p50 2811 ms), phone_lossy 30.0 % (3200 ms), bad_line 100.0 % (2878 ms); phone_noisy never greeted (agent VAD takes babble for speech). Batch 7eb38dc8: clean 16.7 % (4196 ms). Batch e4935d41: barge-in stop latency 362 ms (clean) and 419 ms (phone). 7 runs, 54 STT and 63 LLM requests."}
   - {id: m3, type: milestone, label: "M3 Indic layer + judge"}
   - {id: m4, type: milestone, label: "M4 HMS adapter + CI e2e"}
   - {id: m5, type: milestone, label: "M5 Public release"}
@@ -117,6 +122,13 @@ edges:
   - {from: test_agent, to: mock_hms, rel: calls}
   - {from: call_driver, to: score_latency, rel: produces}
   - {from: call_driver, to: score_wer, rel: produces}
+  - {from: call_driver, to: score_bargein, rel: produces}
+  - {from: score_bargein, to: report, rel: produces}
+  - {from: caller_line, to: degrader, rel: calls}
+  - {from: caller_line, to: tts_cache, rel: depends_on}
+  - {from: call_driver, to: caller_line, rel: depends_on}
+  - {from: report, to: report_compare, rel: produces}
+  - {from: cli, to: report_compare, rel: calls}
   - {from: score_wer, to: normalizer, rel: depends_on}
   - {from: score_task, to: end_state_adapter, rel: depends_on}
   - {from: end_state_adapter, to: mock_hms, rel: calls}
@@ -189,6 +201,8 @@ edges:
   - {from: x_pipecat_evals, to: d14, rel: decided_by}
   # risk mitigation
   - {from: call_driver, to: r_timing, rel: mitigates}
+  - {from: score_bargein, to: r_timing, rel: mitigates}
+  - {from: degrader, to: r_license, rel: mitigates}
   - {from: budget, to: r_quota, rel: mitigates}
   - {from: normalizer, to: r_script, rel: mitigates}
   - {from: score_wer, to: r_alignment, rel: mitigates}
@@ -210,6 +224,11 @@ edges:
   - {from: d14, to: doc_pipecat_evals, rel: documented_in}
   - {from: x_pipecat_evals, to: doc_pipecat_evals, rel: documented_in}
   - {from: m1, to: doc_runbook_m1, rel: documented_in}
+  - {from: m2, to: doc_plan_m2, rel: documented_in}
+  - {from: m2, to: doc_runbook_m2, rel: documented_in}
+  - {from: test_agent, to: doc_runbook_m2, rel: documented_in}
+  - {from: report_compare, to: doc_runbook_m2, rel: documented_in}
+  - {from: degrader, to: doc_spec, rel: documented_in}
   # milestones
   - {from: x_calibrate, to: m0, rel: delivered_in}
   - {from: scenario, to: m1, rel: delivered_in}
@@ -224,6 +243,15 @@ edges:
   - {from: cli, to: m1, rel: delivered_in}
   - {from: budget, to: m1, rel: delivered_in}
   - {from: degrader, to: m2, rel: delivered_in}
+  - {from: caller_line, to: m2, rel: delivered_in}
+  - {from: score_bargein, to: m2, rel: delivered_in}
+  - {from: report_compare, to: m2, rel: delivered_in}
+  - {from: call_driver, to: m2, rel: delivered_in}
+  - {from: transport_codec, to: m2, rel: delivered_in}
+  - {from: test_agent, to: m2, rel: delivered_in}
+  - {from: score_latency, to: m2, rel: delivered_in}
+  - {from: report, to: m2, rel: delivered_in}
+  - {from: cli, to: m2, rel: delivered_in}
   - {from: normalizer, to: m3, rel: delivered_in}
   - {from: judge, to: m3, rel: delivered_in}
   - {from: mock_hms, to: m4, rel: delivered_in}
