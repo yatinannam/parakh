@@ -19,6 +19,7 @@ class _Strict(BaseModel):
 _BAR_AREA_H = 120.0
 _BAR_W = 56
 _BAR_GAP = 18
+_UNREACHED = "turn not reached"
 
 
 class CompareRow(_Strict):
@@ -36,6 +37,10 @@ class CompareRow(_Strict):
     stop_p50_ms: float | None
     did_not_yield: int
     false_barge_ins: int
+    # A turn is reached unless its report marks it "turn not reached". Defaults keep
+    # compare.json files written before these fields loadable.
+    turns_reached: int = 0
+    turns_total: int = 0
 
 
 class Comparison(_Strict):
@@ -69,6 +74,8 @@ def build_comparison(runs: list[tuple[Report, Path]], out_dir: Path) -> Comparis
                 stop_p50_ms=None if m.stop_latency is None else m.stop_latency.p50_ms,
                 did_not_yield=m.did_not_yield,
                 false_barge_ins=len(m.false_barge_in_ms),
+                turns_reached=sum(t.latency_reason != _UNREACHED for t in report.turns),
+                turns_total=len(report.turns),
             )
         )
     rows.sort(key=lambda r: (r.scenario_id, _preset_rank(r.preset)))
@@ -79,15 +86,18 @@ def build_comparison(runs: list[tuple[Report, Path]], out_dir: Path) -> Comparis
 def _bars(rows: list[CompareRow], values: list[float | None], label: str) -> dict[str, Any]:
     """Inline-SVG bar chart data: one bar per row, in row (preset) order."""
     top = max((v for v in values if v is not None), default=0.0)
-    bars: list[dict[str, float | int | str]] = []
+    bars: list[dict[str, float | int | str | bool]] = []
     for pos, (row, value) in enumerate(zip(rows, values, strict=True)):
         height = 0.0 if value is None or top <= 0 else value / top * _BAR_AREA_H
+        partial = row.status != "completed"
+        shown = "n/a" if value is None else label.format(value)
         bars.append(
             {
                 "x": _BAR_GAP + pos * (_BAR_W + _BAR_GAP),
                 "y": round(_BAR_AREA_H - height + 20, 1),
                 "height": round(height, 1),
-                "label": "n/a" if value is None else label.format(value),
+                "label": row.status if partial else shown,
+                "partial": partial,
                 "name": row.preset,
             }
         )
@@ -109,6 +119,7 @@ def _groups(comparison: Comparison) -> list[dict[str, Any]]:
         wer = [None if r.loose_wer is None else r.loose_wer * 100 for r in rows]
         group["wer_chart"] = _bars(rows, wer, "{:.1f}%")
         group["latency_chart"] = _bars(rows, [r.latency_p50_ms for r in rows], "{:.0f} ms")
+        group["has_partial"] = any(r.status != "completed" for r in rows)
     return groups
 
 

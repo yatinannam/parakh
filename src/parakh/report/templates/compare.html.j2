@@ -7,12 +7,12 @@
 <style>
 :root {
   --bg: #ffffff; --fg: #1a1a1a; --muted: #5c5c5c; --line: #d9d9d9;
-  --bar: #2b6cb0; --miss-bg: #ffe0e0; --miss-fg: #8a1c1c; --warn: #8a5a00;
+  --bar: #2b6cb0; --bar-partial: #b8c4d1; --miss-bg: #ffe0e0; --miss-fg: #8a1c1c; --warn: #8a5a00;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171a; --fg: #e8e8e8; --muted: #a0a0a0; --line: #343a40;
-    --bar: #63a4e8; --miss-bg: #5a2323; --miss-fg: #ffd0d0; --warn: #e8b84a;
+    --bar: #63a4e8; --bar-partial: #4a5560; --miss-bg: #5a2323; --miss-fg: #ffd0d0; --warn: #e8b84a;
   }
 }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif;
@@ -29,6 +29,7 @@ a { color: var(--bar); }
 .chart { max-width: 100%; height: auto; }
 .chart text { fill: var(--fg); font-size: 11px; text-anchor: middle; }
 .chart rect { fill: var(--bar); }
+.chart rect.partial { fill: var(--bar-partial); }
 </style>
 </head>
 <body>
@@ -40,6 +41,7 @@ a { color: var(--bar); }
 <table>
 <tr><th></th>{% for r in g.rows %}<th>{{ r.preset }}</th>{% endfor %}</tr>
 <tr><th>Status</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.status }}</a></td>{% endfor %}</tr>
+<tr><th>Turns reached</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.turns_reached }}/{{ r.turns_total }}</a></td>{% endfor %}</tr>
 <tr><th>Loose WER</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.loose_wer | pct }}</a></td>{% endfor %}</tr>
 <tr><th>Strict WER</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.strict_wer | pct }}</a></td>{% endfor %}</tr>
 <tr><th>Latency p50</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.latency_p50_ms | ms }}</a></td>{% endfor %}</tr>
@@ -53,13 +55,14 @@ a { color: var(--bar); }
 <svg class="chart" role="img" aria-label="{{ title }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" width="{{ chart.width }}" height="{{ chart.height }}">
 <text x="{{ chart.width / 2 }}" y="12">{{ title }}</text>
 {% for b in chart.bars %}
-  <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ bar_w }}" height="{{ b.height }}"></rect>
+  <rect{% if b.partial %} class="partial"{% endif %} x="{{ b.x }}" y="{{ b.y }}" width="{{ bar_w }}" height="{{ b.height }}"></rect>
   <text x="{{ b.x + bar_w / 2 }}" y="{{ b.y - 4 }}">{{ b.label }}</text>
   <text x="{{ b.x + bar_w / 2 }}" y="{{ chart.height - 6 }}">{{ b.name }}</text>
 {% endfor %}
 </svg>
 {% endfor %}
 </div>
+{% if g.has_partial %}<p class="muted">Muted bars are runs that did not complete; the label is their status. Their numbers cover only the turns reached.</p>{% endif %}
 {% endfor %}
 </body>
 </html>

@@ -47,7 +47,7 @@ To build a comparison from run directories you already have: `uv run parakh comp
 
 ## 4. Read the comparison page
 
-Open `runs/<batch_id>/compare.html`. Each scenario has a table with a column per preset (status, strict and loose WER, latency p50 and p95, barge-in stop latency, did-not-yield count, false barge-ins, a link to the run's `report.html`) and two bar charts: loose WER and latency p50 by preset.
+Open `runs/<batch_id>/compare.html`. Each scenario has a table with a column per preset (status, strict and loose WER, latency p50 and p95, barge-in stop latency, did-not-yield count, false barge-ins, a link to the run's `report.html`) and two bar charts: loose WER and latency p50 by preset. The table has a "Turns reached" row (`k/n`); a muted bar labelled with a status (not a value) is a run that did not complete, so do not compare it with the others.
 
 In a run's `report.html`:
 - Each turn shows its line: `SNR x dB (at mixing), lost a/b frames, clipped c samples`.

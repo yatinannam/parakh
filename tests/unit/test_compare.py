@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from parakh.report.compare import Comparison, build_comparison, write_comparison
+from parakh.report.model import Report, TurnReport
 from tests.fakes import make_report
 
 
@@ -72,5 +73,59 @@ def test_charts_cover_each_preset(tmp_path: Path):
     ]
     html = write_comparison(build_comparison(runs, out), out).read_text(encoding="utf-8")
     assert html.count("<svg") == 2
+    assert "20.0%" in html
+    assert "900 ms" in html
+
+
+def _turn(index: int, reason: str | None) -> TurnReport:
+    return TurnReport(
+        index=index,
+        say="x",
+        reference="x",
+        transcript="",
+        latency_ms=None,
+        latency_reason=reason,
+        strict_wer=None,
+        loose_wer=None,
+        agent_text="",
+        agent_ttfb_ms=[],
+    )
+
+
+def _with_turns(report: Report, reasons: list[str | None]) -> Report:
+    turns = [_turn(i, r) for i, r in enumerate(reasons)]
+    return report.model_copy(update={"turns": turns})
+
+
+def test_turns_reached_counts_turns_not_marked_unreached(tmp_path: Path):
+    out = _out(tmp_path)
+    report = _with_turns(make_report(), [None, "no reply", "turn not reached", "turn not reached"])
+    comparison = build_comparison([(report, out / "r")], out)
+    assert (comparison.rows[0].turns_reached, comparison.rows[0].turns_total) == (2, 4)
+    html = write_comparison(comparison, out).read_text(encoding="utf-8")
+    assert "Turns reached" in html
+    assert "2/4" in html
+
+
+def test_non_completed_run_gets_muted_status_bar(tmp_path: Path):
+    out = _out(tmp_path)
+    runs = [
+        (make_report(preset="clean", status="turn_timeout", loose_wer=0.5), out / "r1"),
+        (make_report(preset="phone", loose_wer=0.2), out / "r2"),
+    ]
+    html = write_comparison(build_comparison(runs, out), out).read_text(encoding="utf-8")
+    assert html.count('class="partial"') == 2  # one muted bar in each of the two charts
+    assert ">turn_timeout</text>" in html
+    assert ">50.0%</text>" not in html  # the table keeps the value, the chart does not
+    assert ">20.0%</text>" in html
+    assert "Muted bars" in html
+
+
+def test_completed_run_bar_keeps_value_label(tmp_path: Path):
+    out = _out(tmp_path)
+    html = write_comparison(
+        build_comparison([(make_report(loose_wer=0.2, p50=900.0), out / "r")], out), out
+    ).read_text(encoding="utf-8")
+    assert 'class="partial"' not in html
     assert "20.0%" in html
     assert "900 ms" in html
