@@ -62,7 +62,7 @@ a { color: var(--bar); }
 </svg>
 {% endfor %}
 </div>
-{% if g.has_partial %}<p class="muted">Muted bars are runs that did not complete; the label is their status. Their numbers cover only the turns reached.</p>{% endif %}
+{% if g.has_partial %}<p class="muted">Muted bars are runs that did not complete; the label is their status. Their WER counts every unreached turn as missed words, and their latency covers only the turns reached.</p>{% endif %}
 {% endfor %}
 </body>
 </html>

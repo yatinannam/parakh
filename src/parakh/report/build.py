@@ -13,6 +13,8 @@ from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats
 from parakh.caller.recorder import read_events
 from parakh.report.model import (
+    NO_DATA,
+    TURN_NOT_REACHED,
     BargeInReport,
     JitterModel,
     LatencyStatsModel,
@@ -145,7 +147,7 @@ def build_report(
         reached = index < len(starts)
         scored = reached and any_transcript
         if not reached:
-            reason: str | None = "turn not reached"
+            reason: str | None = TURN_NOT_REACHED
         else:
             reason = None if lat is None else lat.reason
         stop = stop_by_turn.get(index)
@@ -298,7 +300,7 @@ def fallback_report(
                 reference=t.reference,
                 transcript="",
                 latency_ms=None,
-                latency_reason="no data",
+                latency_reason=NO_DATA,
                 strict_wer=None,
                 loose_wer=None,
                 agent_text="",

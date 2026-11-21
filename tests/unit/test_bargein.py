@@ -91,9 +91,16 @@ def test_quiet_800_ms_is_a_stop() -> None:
 
 
 def test_quiet_until_caller_speech_end_is_a_stop() -> None:
-    events = [_barge(), _speech_end(6000.0), *_run(4000.0, 5600.0), *_run(6100.0, 6200.0)]
+    events = [_barge(), _speech_end(6000.0), *_run(4000.0, 5600.0), *_run(6300.0, 6400.0)]
     stop = _only(events)
     assert (stop.result, stop.via, stop.stop_latency_ms) == ("yielded", "audio", 600.0)
+
+
+def test_short_gap_spanning_speech_end_is_not_a_stop() -> None:
+    events = [_barge(), _speech_end(5420.0), *_run(4000.0, 5400.0), *_run(5440.0, 7500.0)]
+    stop = _only(events)
+    assert stop.result == "did_not_yield"
+    assert stop.via is None
 
 
 def test_speech_end_of_another_turn_is_ignored() -> None:

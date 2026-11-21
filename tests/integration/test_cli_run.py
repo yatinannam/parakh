@@ -308,7 +308,7 @@ async def test_pauses_inside_a_reply_are_not_a_yield(tmp_path: Path) -> None:
     behaviour = FakeBehaviour(
         burst=False,
         reply_ms=6000,
-        pause_every_ms=500,
+        pause_every_ms=700,
         pause_ms=300,
         transcripts=["one", "two", "three", "four"],
     )

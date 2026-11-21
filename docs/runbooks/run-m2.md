@@ -51,7 +51,7 @@ Open `runs/<batch_id>/compare.html`. Each scenario has a table with a column per
 
 In a run's `report.html`:
 - Each turn shows its line: `SNR x dB (at mixing), lost a/b frames, clipped c samples`.
-- A barge-in turn shows `barge-in after 1200 ms: stopped in X ms (interruption)` (or `(audio)` when the agent's audio stopped first: 800 ms of quiet, or quiet until the caller's speech end; a pause inside the reply does not count), `did not yield within 2 s`, or `agent finished first` when the reply ended before the barge-in point.
+- A barge-in turn shows `barge-in after 1200 ms: stopped in X ms (interruption)` (or `(audio)` when the agent's audio stopped first: 800 ms of quiet, or 500 ms of quiet that holds the caller's speech end; a shorter pause inside the reply does not count), `did not yield within 2 s`, or `agent finished first` when the reply ended before the barge-in point.
 - Metrics add barge-in stop latency (p50, p95, max), the did-not-yield count, and false barge-ins: the agent's `user-started-speaking` (or, without those, its interruptions) outside every caller turn plus 500 ms (EC-25).
 
 ## 5. Stop the agent

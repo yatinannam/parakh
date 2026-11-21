@@ -127,7 +127,7 @@ To hear a preset on one clip: `uv run parakh degrade clip.wav --preset bad_line`
 
 **Barge-in.** A turn with `barge_in: { after_agent_ms: N }` starts N ms into the agent's reply, on the playback clock. Parakh then measures:
 
-- **Stop latency**: from the caller's first frame to the first of the agent's interruption frame and the end of its last audio before 800 ms of quiet (or quiet lasting until the caller's speech end, if that comes first); shorter pauses are part of the reply. Above 2000 ms the turn is `did_not_yield`; if the reply ended before the barge-in point, the turn is `agent_finished_first`.
+- **Stop latency**: from the caller's first frame to the first of the agent's interruption frame and the end of its last audio before 800 ms of quiet (or 500 ms of quiet that holds the caller's speech end, if that comes first); shorter pauses are part of the reply. Above 2000 ms the turn is `did_not_yield`; if the reply ended before the barge-in point, the turn is `agent_finished_first`.
 - **Response latency of that turn**, counted from the moment the agent yielded, so its own tail of speech is not counted as slowness.
 - **False barge-ins**: interruptions or `user-started-speaking` messages from the agent while the caller was silent.
 

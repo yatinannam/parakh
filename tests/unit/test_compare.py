@@ -107,6 +107,13 @@ def test_turns_reached_counts_turns_not_marked_unreached(tmp_path: Path):
     assert "2/4" in html
 
 
+def test_fallback_report_counts_no_turn_as_reached(tmp_path: Path):
+    out = _out(tmp_path)
+    report = _with_turns(make_report(status="internal_error"), ["no data", "no data", "no data"])
+    comparison = build_comparison([(report, out / "r")], out)
+    assert (comparison.rows[0].turns_reached, comparison.rows[0].turns_total) == (0, 3)
+
+
 def test_non_completed_run_gets_muted_status_bar(tmp_path: Path):
     out = _out(tmp_path)
     runs = [

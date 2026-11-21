@@ -6,6 +6,7 @@ from typing import Any, Literal
 from parakh.audio import SPEECH_DBFS
 
 STOP_QUIET_MS = 800.0
+SPEECH_END_QUIET_MS = 500.0
 DID_NOT_YIELD_MS = 2000.0
 FALSE_BARGE_IN_GRACE_MS = 500.0
 
@@ -29,8 +30,8 @@ def _audio_stop(
     """End of the agent's loud audio that is still playing at the onset.
 
     The agent has stopped only after quiet lasting STOP_QUIET_MS (the end-of-turn
-    silence), or quiet lasting until the caller's speech end if that comes first.
-    Shorter pauses are part of the reply.
+    silence), or quiet of at least SPEECH_END_QUIET_MS that lasts until the caller's
+    speech end if that comes first. Shorter pauses are part of the reply.
     """
     frames = sorted(
         (float(e["play_ms"]), float(e["duration_ms"]))
@@ -42,8 +43,9 @@ def _audio_stop(
     )
     end = onset
     for start, duration in frames:
-        if start > end and (
-            start - end >= STOP_QUIET_MS or (speech_end is not None and end <= speech_end <= start)
+        gap = start - end
+        if gap >= STOP_QUIET_MS or (
+            speech_end is not None and gap >= SPEECH_END_QUIET_MS and end <= speech_end <= start
         ):
             break
         end = max(end, start + duration)

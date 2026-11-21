@@ -40,6 +40,12 @@ class BargeInReport(_Strict):
     via: Literal["interruption", "audio"] | None
 
 
+# latency_reason values that mean a turn never ran: the caller did not get to it, or a
+# fallback report has no data at all.
+TURN_NOT_REACHED = "turn not reached"
+NO_DATA = "no data"
+
+
 class TurnReport(_Strict):
     index: int
     say: str

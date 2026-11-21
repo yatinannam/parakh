@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from parakh.degrade.presets import PRESET_ORDER
 from parakh.report.html import ENV
-from parakh.report.model import Report
+from parakh.report.model import NO_DATA, TURN_NOT_REACHED, Report
 
 
 class _Strict(BaseModel):
@@ -19,7 +19,6 @@ class _Strict(BaseModel):
 _BAR_AREA_H = 120.0
 _BAR_W = 56
 _BAR_GAP = 18
-_UNREACHED = "turn not reached"
 
 
 class CompareRow(_Strict):
@@ -37,7 +36,7 @@ class CompareRow(_Strict):
     stop_p50_ms: float | None
     did_not_yield: int
     false_barge_ins: int
-    # A turn is reached unless its report marks it "turn not reached". Defaults keep
+    # A turn is reached unless its report marks it "turn not reached" or "no data". Defaults keep
     # compare.json files written before these fields loadable.
     turns_reached: int = 0
     turns_total: int = 0
@@ -74,7 +73,9 @@ def build_comparison(runs: list[tuple[Report, Path]], out_dir: Path) -> Comparis
                 stop_p50_ms=None if m.stop_latency is None else m.stop_latency.p50_ms,
                 did_not_yield=m.did_not_yield,
                 false_barge_ins=len(m.false_barge_in_ms),
-                turns_reached=sum(t.latency_reason != _UNREACHED for t in report.turns),
+                turns_reached=sum(
+                    t.latency_reason not in (TURN_NOT_REACHED, NO_DATA) for t in report.turns
+                ),
                 turns_total=len(report.turns),
             )
         )
