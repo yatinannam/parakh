@@ -494,6 +494,15 @@ async def test_batch_pauses_between_runs(tmp_path: Path, monkeypatch: pytest.Mon
         sleeps.append(seconds)
 
     monkeypatch.setattr(run_module.asyncio, "sleep", fake_sleep)
-    await _batch(tmp_path, ["clean", "phone"], gap_s=run_module.BATCH_GAP_S)
-    assert run_module.BATCH_GAP_S == 3.0
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    # No gap_s argument: the CLI relies on the default, so the default is what is pinned.
+    await run_batch(
+        [base / "s1.yaml", base / "s2.yaml"],
+        "ws://127.0.0.1:1",
+        ["clean", "phone"],
+        runs_dir=base / "runs",
+        engine=FakeEngine(),
+        cache_dir=base / "cache",
+    )
     assert sleeps == [3.0, 3.0, 3.0]  # 4 runs, 3 gaps, none before the first or after the last
