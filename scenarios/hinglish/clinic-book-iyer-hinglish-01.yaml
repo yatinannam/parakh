@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-book-iyer-hinglish-01
+title: "Book Dr. Iyer for the caller's daughter (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Iyer, the paediatrician, for parso (2026-11-21) at 16:00 for the caller's daughter and confirms the phone number 9740112233."
+caller:
+  voice: hi-IN-MadhurNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, meri beti ke liye Dr. Iyer ke saath appointment chahiye."
+    ref: "hello meri beti ke liye doctor iyer ke saath appointment chahiye"
+  - say: "Parso shaam ko chaar baje ka slot mil jayega?"
+  - say: "Haan, mera number hai nine seven four zero, one one two two three three."
+    ref: "haan mera number hai 9740112233"
+  - say: "Ji, sahi hai. Shukriya, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

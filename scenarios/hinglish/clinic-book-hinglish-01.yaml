@@ -5,6 +5,7 @@ language: hi-en
 domain: clinic
 clock: "2026-11-19T10:00:00+05:30"
 agent_speaks_first: true
+goal: "A successful call books a follow-up with Dr. Rao for kal (2026-11-20) at 10:30 and confirms the phone number 9845012345."
 caller:
   voice: hi-IN-SwaraNeural
   rate: "+0%"

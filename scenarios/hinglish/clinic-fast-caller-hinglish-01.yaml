@@ -1,0 +1,18 @@
+schema_version: 1
+id: clinic-fast-caller-hinglish-01
+title: "Fast speech, Dr. Iyer at 14:30 (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Iyer for parso (2026-11-21) at 14:30 and confirms the phone number 9731556677."
+caller:
+  voice: hi-IN-MadhurNeural
+  rate: "+25%"
+turns:
+  - say: "Hello, mujhe Dr. Iyer ke saath parso dhaai baje ka appointment chahiye."
+    ref: "hello mujhe doctor iyer ke saath parso dhaai baje ka appointment chahiye"
+  - say: "Mera number hai nine seven three one, five five six, six seven seven."
+    ref: "mera number hai 9731556677"
+  - say: "Haan, sahi hai. Thanks, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

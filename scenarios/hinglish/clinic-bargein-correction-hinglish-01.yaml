@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-bargein-correction-hinglish-01
+title: "Interrupt the read-back to correct the time (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 10:30 after the caller interrupts the read-back to correct the time from 10:00, and confirms the phone number 9886554433."
+caller:
+  voice: hi-IN-MadhurNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, mujhe Dr. Rao ke saath kal subah das baje appointment chahiye."
+    ref: "hello mujhe doctor rao ke saath kal subah das baje appointment chahiye"
+  - say: "Mera number hai nine eight eight six, five five four, four three three."
+    ref: "mera number hai 9886554433"
+  - say: "Ruko, das baje nahi, saadhe das baje chahiye."
+    ref: "ruko das baje nahi saadhe das baje chahiye"
+    barge_in: { after_agent_ms: 1500 }
+  - say: "Haan, ab sahi hai. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

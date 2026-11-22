@@ -56,6 +56,7 @@ class Scenario(_Strict):
     agent_speaks_first: bool = True
     caller: CallerVoice
     hms_seed: str | None = None
+    goal: str | None = None
     turns: list[Turn] = Field(min_length=1)
     expect: dict[str, Any] | None = None
     limits: Limits = Field(default_factory=Limits)

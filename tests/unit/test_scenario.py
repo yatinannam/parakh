@@ -159,3 +159,14 @@ def test_bargein_scenario_loads():
 
 def test_bargein_scenario_shares_the_response_timeout():
     assert load_scenario(BARGE_IN).limits.response_timeout_s == 15
+
+
+def test_goal_optional_and_loaded(tmp_path):
+    lines = _example_text().splitlines(keepends=True)
+    bare = "".join(ln for ln in lines if not ln.startswith("goal:"))
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    assert load_scenario(_write(tmp_path / "one", bare, "a.yaml")).goal is None
+    p = _write(tmp_path / "two", bare + "goal: Book Dr. Rao kal at 10:30.\n", "b.yaml")
+    assert load_scenario(p).goal == "Book Dr. Rao kal at 10:30."
+    assert load_scenario(EXAMPLE).goal

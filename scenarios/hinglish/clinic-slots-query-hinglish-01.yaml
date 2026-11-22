@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-slots-query-hinglish-01
+title: "Ask for Dr. Rao's morning slots, pick 09:30 (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call asks which morning slots Dr. Rao has kal, books kal (2026-11-20) at 09:30 and confirms the phone number 9448765210."
+caller:
+  voice: hi-IN-MadhurNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, Dr. Rao ke saath kal subah kaun se slots khaali hain?"
+    ref: "hello doctor rao ke saath kal subah kaun se slots khaali hain"
+  - say: "Saadhe nau baje wala slot theek rahega."
+  - say: "Mera number hai nine four four eight, seven six five, two one zero."
+    ref: "mera number hai 9448765210"
+  - say: "Haan, sahi hai. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

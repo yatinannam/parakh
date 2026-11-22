@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-english-heavy-hinglish-01
+title: "Mostly English with Hindi fillers (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 10:00 and confirms the phone number 9035778899."
+caller:
+  voice: en-IN-PrabhatNeural
+  rate: "+0%"
+turns:
+  - say: "Hi, I would like to book an appointment with Dr. Rao for tomorrow morning, possible hai?"
+    ref: "hi i would like to book an appointment with doctor rao for tomorrow morning possible hai"
+  - say: "Ten o'clock would be great, theek hai."
+  - say: "My number is nine zero three five, seven seven eight, eight nine nine."
+    ref: "my number is 9035778899"
+  - say: "Yes, that is correct. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-devanagari-hinglish-01
+title: "Devanagari caller text (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 10:00 and confirms the phone number 9123456780, spoken in Hindi words in Devanagari."
+caller:
+  voice: hi-IN-SwaraNeural
+  rate: "+0%"
+turns:
+  - say: "नमस्ते, मुझे डॉक्टर राव के साथ कल सुबह दस बजे अपॉइंटमेंट चाहिए।"
+    ref: "नमस्ते मुझे डॉक्टर राव के साथ कल सुबह दस बजे अपॉइंटमेंट चाहिए"
+  - say: "मेरा नंबर है नौ एक दो तीन चार पाँच छह सात आठ शून्य।"
+    ref: "मेरा नंबर है 9123456780"
+  - say: "हाँ, सही है। धन्यवाद, नमस्ते।"
+    ref: "हाँ सही है धन्यवाद नमस्ते"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

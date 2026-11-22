@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-hindi-numbers-hinglish-01
+title: "Phone number, date and time in Hindi words (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for bees November (2026-11-20) at 11:00 and confirms the phone number 9876543210."
+caller:
+  voice: hi-IN-SwaraNeural
+  rate: "+0%"
+turns:
+  - say: "Namaste, mujhe Dr. Rao ke saath bees November ko appointment chahiye."
+    ref: "namaste mujhe doctor rao ke saath bees november ko appointment chahiye"
+  - say: "Gyarah baje ka time theek rahega."
+  - say: "Mera number hai nau aath saat chhe paanch chaar teen do ek shunya."
+    ref: "mera number hai 9876543210"
+  - say: "Ji haan, sahi hai. Dhanyavaad, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-slow-caller-hinglish-01
+title: "Slow speech with fillers, Dr. Rao at 09:00 (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 09:00 and confirms the phone number 9590123987."
+caller:
+  voice: hi-IN-SwaraNeural
+  rate: "-20%"
+turns:
+  - say: "Umm, hello, haan toh, mujhe Dr. Rao ke saath appointment chahiye."
+    ref: "hello mujhe doctor rao ke saath appointment chahiye"
+  - say: "Umm, kal subah nau baje, haan toh wahi theek rahega."
+    ref: "kal subah nau baje wahi theek rahega"
+  - say: "Haan toh, umm, mera number hai nine five nine zero, one two three, nine eight seven."
+    ref: "mera number hai 9590123987"
+  - say: "Haan, umm, sahi hai. Thank you, bye."
+    ref: "haan sahi hai thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

@@ -1,0 +1,20 @@
+schema_version: 1
+id: clinic-correction-hinglish-01
+title: "Caller corrects the last digit of the phone number (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 10:00, and the caller corrects the last digit of the phone number from four to five, so the final number is 9611223345."
+caller:
+  voice: hi-IN-SwaraNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, mujhe Dr. Rao ke saath kal subah das baje appointment chahiye."
+    ref: "hello mujhe doctor rao ke saath kal subah das baje appointment chahiye"
+  - say: "Mera number hai nine six one one, two two three, three four four."
+    ref: "mera number hai 9611223344"
+  - say: "Sorry, last digit galat bola, woh chaar nahi, paanch hai."
+    ref: "sorry last digit galat bola woh chaar nahi paanch hai"
+  - say: "Haan, ab theek hai. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

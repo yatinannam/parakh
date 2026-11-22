@@ -1,0 +1,18 @@
+schema_version: 1
+id: clinic-double-digits-hinglish-01
+title: "Phone number with double and triple digits (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for kal (2026-11-20) at 10:30 and confirms the phone number 9844000123, spoken with double and triple."
+caller:
+  voice: hi-IN-MadhurNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, kal subah Dr. Rao ke saath appointment chahiye, saadhe das baje."
+    ref: "hello kal subah doctor rao ke saath appointment chahiye saadhe das baje"
+  - say: "Mera number hai nine eight double four, triple zero, one two three."
+    ref: "mera number hai 9844000123"
+  - say: "Haan, bilkul sahi. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

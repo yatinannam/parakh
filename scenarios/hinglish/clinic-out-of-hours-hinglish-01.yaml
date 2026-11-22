@@ -1,0 +1,19 @@
+schema_version: 1
+id: clinic-out-of-hours-hinglish-01
+title: "Dr. Rao asked outside hours, then accepts 11:30 (Hinglish)"
+language: hi-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call first asks Dr. Rao for kal at 15:00, which is outside his 09:00 to 12:00 hours, then books kal (2026-11-20) at 11:30 and confirms the phone number 9900123456."
+caller:
+  voice: hi-IN-SwaraNeural
+  rate: "+0%"
+turns:
+  - say: "Hello, mujhe Dr. Rao se kal teen baje ka appointment chahiye."
+    ref: "hello mujhe doctor rao se kal teen baje ka appointment chahiye"
+  - say: "Achha, toh phir kal saadhe gyarah baje chalega."
+  - say: "Mera number hai nine nine zero zero, one two three, four five six."
+    ref: "mera number hai 9900123456"
+  - say: "Haan, theek hai. Thank you, bye."
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
