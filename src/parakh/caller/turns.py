@@ -19,8 +19,10 @@ Rules:
    reached), the machine finishes instead.
 5. CALLER_SPEAKING -> next state when the clip is fully sent. Agent audio during
    the clip does not interrupt it.
-6. On every entry into AGENT_SPEAKING the machine records the reply onset (the
-   agent_onset_ms input, else now) and keeps it until it leaves the state. When the
+6. On every entry into AGENT_SPEAKING the machine records the reply onset. From
+   WAIT_AGENT it is the agent_onset_ms input, else now. From CALLER_SPEAKING (the
+   agent was still speaking when the clip ended) it is now, so a second barge-in is
+   timed from the caller's turn end. The onset is kept until the state is left. When the
    next turn has a barge_in offset, the agent is speaking and now reaches onset plus
    that offset, the turn starts with barge_in=True. If the reply ends first, the turn
    starts normally with barge_in=False. Turns without a barge-in carry None.
