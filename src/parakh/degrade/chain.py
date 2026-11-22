@@ -90,7 +90,7 @@ def degrade(
     if preset.loss is not None:
         mask = loss_mask(len(mask), preset.loss.rate, preset.loss.mean_burst_frames, rng)
         x = apply_loss(x, _frame_len(cur), mask, preset.loss.conceal)
-    x = _fit(resample_f(x, cur, out_rate), round(len(pcm) * out_rate / rate))
+    x = _fit(resample_f(x, cur, out_rate), -(-len(pcm) * out_rate // rate))
     out, n = to_int16(x)
     clipped += n
     lost = [bool(b) for b in mask]

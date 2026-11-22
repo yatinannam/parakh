@@ -91,7 +91,10 @@ class TurnMachine:
             now_ms, agent_speaking, playback_end_ms, bot_stopped, caller_done, agent_onset_ms
         )
         if self.state is TurnState.AGENT_SPEAKING and before is not TurnState.AGENT_SPEAKING:
-            self.reply_onset_ms = now_ms if agent_onset_ms is None else agent_onset_ms
+            from_caller = before is TurnState.CALLER_SPEAKING
+            self.reply_onset_ms = (
+                now_ms if from_caller or agent_onset_ms is None else agent_onset_ms
+            )
         return action
 
     def _dispatch(

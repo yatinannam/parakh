@@ -53,10 +53,21 @@ def test_phone_keeps_length_and_timing(out_rate: int) -> None:
     out = degrade(
         pcm, RATE, get_preset("phone"), out_rate=out_rate, noise=None, rng=part_rng(1, "a")
     )
-    assert len(out.pcm) == round(len(pcm) * out_rate / RATE)
+    assert len(out.pcm) == -(-len(pcm) * out_rate // RATE)
     assert len(out.lost) == math.ceil(len(pcm) / RATE / 0.020)
     assert out.stats is not None and out.stats.frames == len(out.lost)
     assert abs(speech_end_ms(out.pcm, out_rate) - speech_end_ms(pcm, RATE)) <= 20
+
+
+@pytest.mark.parametrize("rate", [8000, 16000, 24000, 44100])
+@pytest.mark.parametrize("preset", ["phone", "phone_lossy", "bad_line"])
+def test_degraded_length_matches_clean(rate: int, preset: str) -> None:
+    pcm = np.tile(_clip(), 13)[:12345]
+    noise = _noise(pcm, 5.0) if get_preset(preset).noise is not None else None
+    out = degrade(pcm, RATE, get_preset(preset), out_rate=rate, noise=noise, rng=part_rng(1, "a"))
+    clean = degrade(pcm, RATE, get_preset("clean"), out_rate=rate, noise=None, rng=part_rng(1, "a"))
+    assert len(out.pcm) == len(resample(pcm, RATE, rate)) == len(clean.pcm)
+    assert len(out.lost) == len(clean.lost)
 
 
 def test_lost_frames_are_zero_at_8khz() -> None:

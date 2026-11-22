@@ -488,3 +488,109 @@ def test_compare_different_drives_exits_2(tmp_path: Path, monkeypatch: pytest.Mo
     result = CliRunner().invoke(app, ["compare", str(first), str(second)])
     _assert_clean_exit_2(result)
     assert "different drives; pass --out" in result.output
+
+
+def _degrade(*args: str) -> Result:
+    return CliRunner().invoke(app, ["degrade", *args])
+
+
+def _assert_exit_2(result: Result, text: str) -> None:
+    assert result.exit_code == 2
+    assert text in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_degrade_unsupported_rate_exits_2(tmp_path: Path) -> None:
+    clip = _tone_wav(tmp_path / "dir with space" / "in.wav")
+    _assert_exit_2(_degrade(str(clip), "--preset", "phone", "--rate", "12345"), "12345")
+
+
+def test_degrade_unsupported_wav_rate_exits_2(tmp_path: Path) -> None:
+    clip = _tone_wav(tmp_path / "dir with space" / "in.wav", rate=12000)
+    _assert_exit_2(_degrade(str(clip), "--preset", "phone"), "12000")
+
+
+def test_degrade_stereo_wav_exits_2(tmp_path: Path) -> None:
+    import wave
+
+    clip = tmp_path / "dir with space" / "st.wav"
+    clip.parent.mkdir(parents=True)
+    with wave.open(str(clip), "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(bytes(16000 * 4))
+    result = _degrade(str(clip), "--preset", "phone")
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+
+
+def test_degrade_missing_file_exits_2(tmp_path: Path) -> None:
+    result = _degrade(str(tmp_path / "dir with space" / "none.wav"), "--preset", "phone")
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+
+
+def test_degrade_ffmpeg_missing_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from parakh.tts.ffmpeg import FfmpegMissing
+
+    async def boom(*_a: Any, **_k: Any) -> None:
+        raise FfmpegMissing("ffmpeg not found")
+
+    monkeypatch.setattr(cli, "noise_track", boom)
+    clip = _tone_wav(tmp_path / "dir with space" / "in.wav")
+    _assert_exit_2(_degrade(str(clip), "--preset", "phone_noisy"), "ffmpeg not found")
+
+
+def test_degrade_8khz_input_works(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav", rate=8000)
+    out = base / "o.wav"
+    result = _degrade(str(clip), "--preset", "phone", "--rate", "16000", "--out", str(out))
+    assert result.exit_code == 0, result.output
+    assert _wav_info(out)[0] == 16000
+
+
+def test_degrade_seed_changes_noise(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav")
+    outs = {}
+    for name, seed in [("a", 1), ("b", 2), ("c", 1)]:
+        outs[name] = base / f"{name}.wav"
+        result = _degrade(
+            str(clip), "--preset", "bad_line", "--seed", str(seed), "--out", str(outs[name])
+        )
+        assert result.exit_code == 0, result.output
+    assert outs["a"].read_bytes() != outs["b"].read_bytes()
+    assert outs["a"].read_bytes() == outs["c"].read_bytes()
+
+
+def test_degrade_all_empty_babble_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class SilentEngine(FakeEngine):
+        def _make_mp3(self) -> bytes:
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=r=24000:cl=mono",
+                    "-t",
+                    "0.6",
+                    "-f",
+                    "mp3",
+                    "pipe:1",
+                ],
+                capture_output=True,
+                check=True,
+            )
+            return result.stdout
+
+    base = tmp_path / "dir with space"
+    clip = _tone_wav(base / "in.wav")
+    monkeypatch.setattr(cli, "make_engine", lambda: SilentEngine())
+    result = _degrade(str(clip), "--preset", "phone_noisy", "--cache-dir", str(base / "cache"))
+    _assert_exit_2(result, "no audio")

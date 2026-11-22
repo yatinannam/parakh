@@ -390,7 +390,12 @@ async def test_noise_preset_call_completes(tmp_path: Path) -> None:
     scenario = _scenario(2, True, 20.0)
     line = await _line(base, clips, scenario, "phone_noisy")
     bed_level = dbfs(np.concatenate(line.bed))
-    speech = [dbfs(f) for t in line.turns for f in t.frames[: max(1, t.speech_end_frame - 1)]]
+    speech = [
+        dbfs(f)
+        for t in line.turns
+        for f, lost in zip(t.frames[: max(1, t.speech_end_frame - 1)], t.lost, strict=False)
+        if not lost
+    ]
     quietest = min(speech)
     assert quietest > bed_level
     behaviour = FakeBehaviour(vad_dbfs=(bed_level + quietest) / 2)
@@ -403,18 +408,35 @@ async def test_noise_preset_call_completes(tmp_path: Path) -> None:
 
 
 async def test_lossy_preset_logs_lost_frames(tmp_path: Path) -> None:
+    # bad_line has loss and a pink bed, so the bed carries lost frames too. Six turns of
+    # 20 frames at 5 % loss make a turn without any lost frame very unlikely.
     base = tmp_path / "dir with space"
-    clips = _write_clips(base / "clips", 2)
-    scenario = _scenario(2, True, 20.0)
-    line = await _line(base, clips, scenario, "phone_lossy")
-    async with fake_agent(FakeBehaviour()) as url:
+    clips = _write_clips(base / "clips", 6)
+    scenario = _scenario(6, True, 30.0)
+    line = await _line(base, clips, scenario, "bad_line")
+    bed_peak = max(dbfs(f) for f in line.bed)
+    speech = [
+        dbfs(f)
+        for t in line.turns
+        for f, lost in zip(t.frames[: max(1, t.speech_end_frame - 1)], t.lost, strict=False)
+        if not lost
+    ]
+    assert min(speech) > bed_peak
+    behaviour = FakeBehaviour(vad_dbfs=(bed_peak + min(speech)) / 2)
+    async with fake_agent(behaviour) as url:
         result = await run_call(url, scenario, line, base / "run")
     assert result.status == "completed"
     frames = _kinds(read_events(result.run_dir), "caller_frame")
     assert frames
     for e in frames:
-        flags = line.bed_lost if e["turn"] is None else line.turns[e["turn"]].lost
-        assert e["lost"] is flags[e["frame"]]
+        flags = (
+            line.bed_lost[e["frame"]]
+            if e["turn"] is None
+            else line.turns[e["turn"]].lost[e["frame"]]
+        )
+        assert e["lost"] is flags
+    assert any(e["turn"] is not None and e["lost"] for e in frames)
+    assert any(e["turn"] is None and e["lost"] for e in frames)
 
 
 async def _barge_call(tmp_path: Path, **behaviour: Any) -> tuple[CallResult, list[dict[str, Any]]]:

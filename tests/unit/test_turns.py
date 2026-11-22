@@ -287,3 +287,23 @@ def test_turn_without_barge_in_has_none() -> None:
     m = _barge_machine()
     assert _step(m, 0, True, 500, 0) == NONE
     assert _step(m, 1300, False, 500, 0) == Action("start_turn", 0, barge_in=None)
+
+
+def test_second_barge_in_waits_after_caller_turn() -> None:
+    m = TurnMachine(
+        3,
+        agent_speaks_first=True,
+        response_timeout_ms=8000,
+        max_turns=10,
+        barge_in_ms=[1000, 1000],
+    )
+    # The agent speaks from t=0 and never stops: agent_onset_ms stays 0.
+    assert _step(m, 0, True, 100, 0) == NONE
+    assert _step(m, 980, True, 1000, 0) == NONE
+    assert _step(m, 1000, True, 1020, 0) == Action("start_turn", 0, barge_in=True)
+    assert _step(m, 2000, True, 2020, 0) == NONE
+    assert _step(m, 3000, True, 3020, 0, done=True) == NONE  # clip ends; agent still speaking
+    assert m.reply_onset_ms == 3000
+    for now in range(3020, 4000, 20):
+        assert _step(m, now, True, now + 20, 0) == NONE
+    assert _step(m, 4000, True, 4020, 0) == Action("start_turn", 1, barge_in=True)
