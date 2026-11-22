@@ -1,6 +1,9 @@
+import os
 from pathlib import Path
 
-from parakh.report.compare import Comparison, build_comparison, write_comparison
+import pytest
+
+from parakh.report.compare import Comparison, _report_href, build_comparison, write_comparison
 from parakh.report.model import Report, TurnReport
 from tests.fakes import make_report
 
@@ -136,3 +139,13 @@ def test_completed_run_bar_keeps_value_label(tmp_path: Path):
     assert 'class="partial"' not in html
     assert "20.0%" in html
     assert "900 ms" in html
+
+
+def test_href_across_drives_falls_back_to_uri(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def other_drive(*_a: object, **_k: object) -> str:
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(os.path, "relpath", other_drive)
+    href = _report_href(tmp_path / "dir with space" / "r1", tmp_path)
+    assert href.startswith("file:")
+    assert href.endswith("report.html")

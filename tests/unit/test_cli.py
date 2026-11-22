@@ -3,6 +3,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner, Result
@@ -303,7 +304,8 @@ def _run_args(tmp_path: Path, *presets: str) -> list[str]:
     args = ["run", str(_scenario_file(tmp_path)), "--agent", "ws://127.0.0.1:1"]
     for name in presets:
         args += ["--preset", name]
-    return [*args, "--runs-dir", str(tmp_path / "dir with space" / "r")]
+    base = tmp_path / "dir with space"
+    return [*args, "--runs-dir", str(base / "r"), "--cache-dir", str(base / "cache")]
 
 
 def test_preset_all_expands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -429,3 +431,60 @@ def test_degrade_empty_clip_with_noise_exits_2(tmp_path):
     assert result.exit_code == 2
     assert "clip is empty" in result.stderr
     assert "noise has zero RMS" not in result.stderr
+
+
+def test_batch_prints_each_summary_as_it_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order: list[str] = []
+    real_echo = cli.typer.echo
+
+    def recording_echo(message: object = "", *a: Any, **k: Any) -> None:
+        order.append(str(message))
+        real_echo(message, *a, **k)
+
+    async def fake(_path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: object):
+        order.append(f"start {preset}")
+        run_dir = runs_dir / preset
+        run_dir.mkdir(parents=True)
+        return make_report(preset=preset, run_id=preset), run_dir
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    monkeypatch.setattr(cli.typer, "echo", recording_echo)
+    result = CliRunner().invoke(app, _run_args(tmp_path, "clean", "phone"))
+    assert result.exit_code == 0, result.output
+    first = order.index("s1 / clean")
+    assert first < order.index("start phone") < order.index("s1 / phone")
+    assert order[-1].startswith("comparison:")
+
+
+def test_compare_default_out_is_common_parent(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space"
+    first = _run_dir_with_report(base / "b 1", "aaaa1111", "clean")
+    second = _run_dir_with_report(base / "b 2", "bbbb2222", "phone")
+    result = CliRunner().invoke(app, ["compare", str(first), str(second)])
+    assert result.exit_code == 0, result.output
+    assert (base / "compare.html").exists()
+
+
+def test_compare_single_dir_writes_to_its_parent(tmp_path: Path) -> None:
+    base = tmp_path / "dir with space" / "runs"
+    only = _run_dir_with_report(base, "aaaa1111", "clean")
+    result = CliRunner().invoke(app, ["compare", str(only)])
+    assert result.exit_code == 0, result.output
+    assert (base / "compare.html").exists()
+
+
+def test_compare_different_drives_exits_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = tmp_path / "dir with space" / "runs"
+    first = _run_dir_with_report(base, "aaaa1111", "clean")
+    second = _run_dir_with_report(base, "bbbb2222", "phone")
+
+    def other_drive(*_a: object, **_k: object) -> str:
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr(cli.os.path, "commonpath", other_drive)
+    result = CliRunner().invoke(app, ["compare", str(first), str(second)])
+    _assert_clean_exit_2(result)
+    assert "different drives; pass --out" in result.output

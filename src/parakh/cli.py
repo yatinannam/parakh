@@ -1,6 +1,7 @@
 """Command-line entry point for Parakh."""
 
 import asyncio
+import os
 import wave
 from pathlib import Path
 from typing import Annotated
@@ -135,6 +136,20 @@ def _echo_comparison(batch_dirs: list[Path]) -> None:
         typer.echo(f"comparison: {batch_dirs[0] / 'compare.html'}", err=True)
 
 
+def _echo_summary(result: Report, agent: str, *, batched: bool) -> None:
+    """Print one run's summary; called as each run finishes."""
+    latency = result.metrics.latency
+    if batched:
+        typer.echo(f"{result.scenario_id} / {result.preset}")
+    typer.echo(f"status: {result.status}")
+    if result.status == "agent_unreachable":
+        typer.echo(f"could not connect to {_endpoint(agent)}")
+    typer.echo(f"latency p50/p95: {_ms(latency.p50_ms)} / {_ms(latency.p95_ms)} ms")
+    typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
+    if result.timing_unreliable:
+        typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
+
+
 @app.command()
 def run(
     scenario: Annotated[Path, typer.Argument(help="Scenario YAML file or directory.")],
@@ -152,6 +167,10 @@ def run(
     More than one run (several scenarios or presets) also writes compare.html.
     """
     batch_dirs: list[Path] = []
+
+    def on_done(result: Report, _run_dir: Path) -> None:
+        _echo_summary(result, agent, batched=len(batch_dirs) > 0)
+
     try:
         presets = expand_presets(preset or ["clean"])
         files = _scenario_files([scenario])
@@ -168,6 +187,8 @@ def run(
                 cache_dir=cache_dir,
                 on_start=lambda run_dir: typer.echo(f"run dir: {run_dir}"),
                 on_batch=batch_dirs.append,
+                on_done=on_done,
+                on_warning=lambda message: typer.echo(message, err=True),
             )
         )
     except KeyboardInterrupt:
@@ -182,27 +203,27 @@ def run(
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
         _echo_comparison(batch_dirs)
         raise _fail(f"run failed: {_describe(exc)}") from exc
-    for result, _run_dir in results:
-        latency = result.metrics.latency
-        if batch_dir is not None:
-            typer.echo(f"{result.scenario_id} / {result.preset}")
-        typer.echo(f"status: {result.status}")
-        if result.status == "agent_unreachable":
-            typer.echo(f"could not connect to {_endpoint(agent)}")
-        typer.echo(f"latency p50/p95: {_ms(latency.p50_ms)} / {_ms(latency.p95_ms)} ms")
-        typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
-        if result.timing_unreliable:
-            typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
-    if batch_dir is not None:
+    if batch_dir is not None and (batch_dir / "compare.html").is_file():
         typer.echo(f"comparison: {batch_dir / 'compare.html'}")
     raise typer.Exit(max(exit_code(result) for result, _ in results))
+
+
+def _default_compare_dir(run_dirs: list[Path]) -> Path:
+    """Common parent of the run directories; one level up when it is itself a run."""
+    resolved = [d.resolve() for d in run_dirs]
+    try:
+        common = Path(os.path.commonpath(resolved))
+    except ValueError as exc:
+        raise _fail("run directories are on different drives; pass --out") from exc
+    return common.parent if common in resolved else common
 
 
 @app.command()
 def compare(
     run_dirs: Annotated[list[Path], typer.Argument(help="Run directories with report.json.")],
     out: Annotated[
-        Path | None, typer.Option(help="Where compare.html goes (default: parent of the first).")
+        Path | None,
+        typer.Option(help="Where compare.html goes (default: the common parent of the runs)."),
     ] = None,
 ) -> None:
     """Build compare.html and compare.json from existing run directories."""
@@ -213,7 +234,7 @@ def compare(
         # ValueError covers non-UTF-8 text and pydantic's ValidationError.
         except (OSError, ValueError) as exc:
             raise _fail(f"cannot read report.json in {run_dir}: {exc}") from exc
-    target = out if out is not None else run_dirs[0].parent
+    target = out if out is not None else _default_compare_dir(run_dirs)
     typer.echo(str(write_comparison(build_comparison(runs, target), target)))
 
 

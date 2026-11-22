@@ -52,12 +52,20 @@ def _preset_rank(name: str) -> int:
     return PRESET_ORDER.index(name) if name in PRESET_ORDER else len(PRESET_ORDER)
 
 
+def _report_href(run_dir: Path, out_dir: Path) -> str:
+    """Relative POSIX path to the run's report; a file: URI when the drives differ."""
+    try:
+        return Path(os.path.relpath(run_dir / "report.html", out_dir)).as_posix()
+    except ValueError:
+        return (run_dir / "report.html").resolve().as_uri()
+
+
 def build_comparison(runs: list[tuple[Report, Path]], out_dir: Path) -> Comparison:
     """One row per run, sorted by scenario id, then preset order (unknown presets last)."""
     rows: list[CompareRow] = []
     for report, run_dir in runs:
         m = report.metrics
-        href = Path(os.path.relpath(run_dir / "report.html", out_dir)).as_posix()
+        href = _report_href(run_dir, out_dir)
         rows.append(
             CompareRow(
                 scenario_id=report.scenario_id,

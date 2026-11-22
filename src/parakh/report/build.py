@@ -248,24 +248,36 @@ def interrupted_report(
         return fallback_report(
             scenario, run_id, agent_url, preset, "interrupted", [INTERRUPT_WARNING]
         )
-    infos = [
-        e["info"] for e in events if e["kind"] == "agent_info" and isinstance(e.get("info"), dict)
-    ]
-    warnings = [str(e["message"]) for e in events if e["kind"] == "warning" and "message" in e]
-    starts = sum(1 for e in events if e["kind"] == "caller_turn_start")
-    stand_in = CallResult(
-        status="interrupted",
-        run_dir=run_dir,
-        turns_started=starts,
-        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
-        timing_unreliable=False,
-        cpu_max_percent=0.0,
-        agent_info=infos[-1] if infos else {},
-        warnings=[*warnings, INTERRUPT_WARNING],
-    )
-    return build_report(
-        scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset, line=line
-    )
+    try:
+        infos = [
+            e["info"]
+            for e in events
+            if e["kind"] == "agent_info" and isinstance(e.get("info"), dict)
+        ]
+        warnings = [str(e["message"]) for e in events if e["kind"] == "warning" and "message" in e]
+        starts = sum(1 for e in events if e["kind"] == "caller_turn_start")
+        stand_in = CallResult(
+            status="interrupted",
+            run_dir=run_dir,
+            turns_started=starts,
+            jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+            timing_unreliable=False,
+            cpu_max_percent=0.0,
+            agent_info=infos[-1] if infos else {},
+            warnings=[*warnings, INTERRUPT_WARNING],
+        )
+        return build_report(
+            scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset, line=line
+        )
+    except Exception as exc:  # a half-written event must not lose the interrupt
+        return fallback_report(
+            scenario,
+            run_id,
+            agent_url,
+            preset,
+            "interrupted",
+            [INTERRUPT_WARNING, f"partial report failed: {type(exc).__name__}"],
+        )
 
 
 def fallback_report(

@@ -11,6 +11,7 @@ from parakh.caller.driver import run_call
 from parakh.caller.line import CallerLine, build_line
 from parakh.caller.recorder import read_events
 from parakh.degrade import get_preset
+from parakh.degrade.track import noise_track
 from parakh.report.build import (
     build_report,
     fallback_report,
@@ -126,6 +127,37 @@ def _write(report: Report, run_dir: Path) -> None:
     write_report_html(report, run_dir)
 
 
+async def preflight(
+    scenario_paths: list[Path],
+    presets: list[str],
+    agent_url: str,
+    agent_rate: int,
+    *,
+    engine: TTSEngine,
+    cache_dir: Path,
+) -> list[Scenario]:
+    """Check everything a batch needs before its first call, so a late typo costs nothing.
+
+    Validates presets, agent rate and URL, loads every scenario (a ScenarioError names its
+    file), checks ffmpeg, then builds every caller clip and, when a preset uses babble,
+    the babble talkers. Raises before anything is written to runs_dir.
+    """
+    specs = [get_preset(name) for name in presets]
+    if agent_rate not in SUPPORTED_RATES:
+        rates = ", ".join(str(r) for r in SUPPORTED_RATES)
+        raise ValueError(f"agent_rate {agent_rate} is not supported; use one of: {rates}")
+    check_agent_url(agent_url)
+    scenarios = [load_scenario(path) for path in scenario_paths]
+    require_ffmpeg()
+    cache = TTSCache(cache_dir)
+    for scenario in scenarios:
+        await build_scenario_audio(scenario, cache, engine)
+    babble = next((s for s in specs if s.noise is not None and s.noise.kind == "babble"), None)
+    if babble is not None:
+        await noise_track(babble, 0, cache, engine)
+    return scenarios
+
+
 async def run_batch(
     scenario_paths: list[Path],
     agent_url: str,
@@ -138,6 +170,8 @@ async def run_batch(
     on_start: Callable[[Path], None] | None = None,
     on_batch: Callable[[Path], None] | None = None,
     gap_s: float = BATCH_GAP_S,
+    on_done: Callable[[Report, Path], None] | None = None,
+    on_warning: Callable[[str], None] | None = None,
 ) -> tuple[list[tuple[Report, Path]], Path | None]:
     """Run every scenario under every preset, back to back, in scenario then preset order.
 
@@ -150,7 +184,11 @@ async def run_batch(
     even when the batch ends in an exception. Runs are gap_s apart, so an agent can
     finish what the previous call left (a segment its VAD was still hearing when the
     caller hung up) before the next caller connects and the agent resets its state.
+    preflight runs first (also for one run); on_done gets (report, run_dir) after each run's reports
+    are written; an OSError writing the comparison goes to on_warning and the batch goes on.
     """
+    tts = engine if engine is not None else EdgeTTSEngine()
+    await preflight(scenario_paths, presets, agent_url, agent_rate, engine=tts, cache_dir=cache_dir)
     pairs = [(path, preset) for path in scenario_paths for preset in presets]
     if len(pairs) == 1:
         path, preset = pairs[0]
@@ -160,10 +198,12 @@ async def run_batch(
             preset=preset,
             runs_dir=runs_dir,
             agent_rate=agent_rate,
-            engine=engine,
+            engine=tts,
             cache_dir=cache_dir,
             on_start=on_start,
         )
+        if on_done is not None:
+            on_done(*single)
         return [single], None
     batch_dir = runs_dir / secrets.token_hex(4)
     done: list[tuple[Report, Path]] = []
@@ -180,12 +220,14 @@ async def run_batch(
                     preset=preset,
                     runs_dir=batch_dir,
                     agent_rate=agent_rate,
-                    engine=engine,
+                    engine=tts,
                     cache_dir=cache_dir,
                     on_start=on_start,
                 )
             )
-            _write_comparison(done, batch_dir)
+            if on_done is not None:
+                on_done(*done[-1])
+            _write_comparison(done, batch_dir, on_warning)
     except BaseException:
         # The interrupted run has a partial report on disk but never returned.
         known = {run_dir for _, run_dir in done}
@@ -194,11 +236,20 @@ async def run_batch(
                 with contextlib.suppress(Exception):
                     done.append((load_report(report_path), report_path.parent))
         with contextlib.suppress(Exception):
-            _write_comparison(done, batch_dir)
+            _write_comparison(done, batch_dir, on_warning)
         raise
     return done, batch_dir
 
 
-def _write_comparison(runs: list[tuple[Report, Path]], batch_dir: Path) -> None:
-    if runs:
+def _write_comparison(
+    runs: list[tuple[Report, Path]],
+    batch_dir: Path,
+    on_warning: Callable[[str], None] | None = None,
+) -> None:
+    if not runs:
+        return
+    try:
         write_comparison(build_comparison(runs, batch_dir), batch_dir)
+    except OSError as exc:
+        if on_warning is not None:
+            on_warning(f"could not write the comparison: {exc}")

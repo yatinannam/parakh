@@ -3,7 +3,7 @@ from pathlib import Path
 
 from parakh.caller.driver import CallResult
 from parakh.caller.pacer import JitterStats
-from parakh.report.build import build_report
+from parakh.report.build import build_report, interrupted_report
 from parakh.report.html import render_html, write_report_html
 from parakh.report.model import (
     BargeInReport,
@@ -249,3 +249,22 @@ def test_turn_without_noise_prints_snr_na_without_unit():
     html = render_html(report)
     assert "line: SNR n/a, lost 0/30 frames" in html
     assert "n/a dB" not in html
+
+
+def test_interrupted_report_survives_malformed_event(tmp_path: Path):
+    run_dir = tmp_path / "dir with space"
+    run_dir.mkdir()
+    (run_dir / "events.jsonl").write_text('{"kind": "caller_turn_start"}\n', encoding="utf-8")
+    scenario = Scenario(
+        schema_version=1,
+        id="int-01",
+        title="Interrupt",
+        language="en",
+        domain="clinic",
+        clock=datetime(2026, 11, 19, 10, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+        caller=CallerVoice(voice="v"),
+        turns=[Turn(say="hello")],
+    )
+    report = interrupted_report(scenario, "a1b2c3d4", run_dir, "ws://h:1", "clean")
+    assert report.status == "interrupted"
+    assert report.warnings[-1].startswith("partial report failed: KeyError")

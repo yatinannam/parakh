@@ -394,17 +394,28 @@ def _batch_fake(
     return calls
 
 
+def _scenario_files(base: Path, names: tuple[str, ...]) -> list[Path]:
+    files: list[Path] = []
+    for name in names:
+        path = base / f"{name}.yaml"
+        path.write_text(_SCENARIO_YAML.replace("run-int-01", f"{name}-01"), encoding="utf-8")
+        files.append(path)
+    return files
+
+
 async def _batch(
     tmp_path: Path,
     presets: list[str],
     names: tuple[str, ...] = ("s1", "s2"),
     on_batch: Callable[[Path], None] | None = None,
     gap_s: float = 0.0,
+    on_done: Callable[[Report, Path], None] | None = None,
+    on_warning: Callable[[str], None] | None = None,
 ):
     base = tmp_path / "dir with space"
     base.mkdir(exist_ok=True)
     return await run_batch(
-        [base / f"{n}.yaml" for n in names],
+        _scenario_files(base, names),
         "ws://127.0.0.1:1",
         presets,
         runs_dir=base / "runs",
@@ -412,6 +423,8 @@ async def _batch(
         engine=FakeEngine(),
         cache_dir=base / "cache",
         on_batch=on_batch,
+        on_done=on_done,
+        on_warning=on_warning,
         gap_s=gap_s,
     )
 
@@ -503,7 +516,7 @@ async def test_batch_pauses_between_runs(tmp_path: Path, monkeypatch: pytest.Mon
     base.mkdir()
     # No gap_s argument: the CLI relies on the default, so the default is what is pinned.
     await run_batch(
-        [base / "s1.yaml", base / "s2.yaml"],
+        _scenario_files(base, ("s1", "s2")),
         "ws://127.0.0.1:1",
         ["clean", "phone"],
         runs_dir=base / "runs",
@@ -538,3 +551,125 @@ async def test_interrupt_partial_report_keeps_seed_and_degradation(
     assert isinstance(data["seed"], int)
     assert data["turns"][0]["degradation"]["frames"] > 0
     assert data["turns"][1]["degradation"] is None
+
+
+# preflight
+
+_BAD_YAML = "schema_version: 1\nid: bad\n"
+
+
+class _FailOnTextEngine(FakeEngine):
+    async def synthesize(self, text: str, voice: str, rate: str, pitch: str) -> bytes:
+        if text == "three four":
+            raise RuntimeError("engine down")
+        return await super().synthesize(text, voice, rate, pitch)
+
+
+def _recording_run_call(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    calls: list[Path] = []
+
+    async def fake_run_call(_url: str, _scn: Scenario, _clips: Any, run_dir: Path, **_k: Any):
+        calls.append(run_dir)
+        raise AssertionError("no call expected")
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    return calls
+
+
+async def test_preflight_rejects_bad_scenario_before_any_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    base = tmp_path / "s p"
+    base.mkdir()
+    good = _scenario_files(base, ("good",))[0]
+    bad = base / "bad.yaml"
+    bad.write_text(_BAD_YAML, encoding="utf-8")
+    calls = _recording_run_call(monkeypatch)
+    with pytest.raises(ScenarioError, match="bad.yaml"):
+        await run_batch(
+            [good, bad],
+            "ws://127.0.0.1:1",
+            ["clean"],
+            runs_dir=base / "runs",
+            engine=FakeEngine(),
+            cache_dir=base / "cache",
+        )
+    assert calls == []
+    assert not (base / "runs").exists()
+
+
+async def test_preflight_builds_all_clips_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    base = tmp_path / "s p"
+    base.mkdir()
+    first, second = _scenario_files(base, ("a", "b"))
+    # The second scenario alone carries the text the engine refuses.
+    second.write_text(second.read_text(encoding="utf-8").replace("one two", "three four"), "utf-8")
+    calls = _recording_run_call(monkeypatch)
+    with pytest.raises(RuntimeError, match="engine down"):
+        await run_batch(
+            [first, second],
+            "ws://127.0.0.1:1",
+            ["clean"],
+            runs_dir=base / "runs",
+            engine=_FailOnTextEngine(),
+            cache_dir=base / "cache",
+        )
+    assert calls == []
+    assert not (base / "runs").exists()
+
+
+async def test_preflight_builds_babble_once_for_noise_presets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    order: list[str] = []
+    seen: list[Any] = []
+
+    async def fake_noise_track(spec: Any, seed: int, _cache: Any, _engine: Any):
+        order.append("noise")
+        seen.append((spec.noise.kind, seed))
+
+    monkeypatch.setattr(run_module, "noise_track", fake_noise_track)
+    _batch_fake(monkeypatch)
+    inner = run_module.run_scenario
+
+    async def tracking(*a: Any, **k: Any):
+        order.append("run")
+        return await inner(*a, **k)
+
+    monkeypatch.setattr(run_module, "run_scenario", tracking)
+    await _batch(tmp_path, ["clean", "phone_noisy"], names=("s1",))
+    assert order == ["noise", "run", "run"]
+    assert seen == [("babble", 0)]
+
+
+async def test_on_done_called_per_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _batch_fake(monkeypatch)
+    done: list[tuple[str, bool]] = []
+
+    def on_done(report: Report, run_dir: Path) -> None:
+        done.append((report.run_id, (run_dir / "report.json").exists()))
+
+    await _batch(tmp_path, ["clean", "phone"], names=("s1",), on_done=on_done)
+    assert done == [("r0", True), ("r1", True)]
+    single: list[str] = []
+    await _batch(tmp_path, ["clean"], names=("s1",), on_done=lambda r, _d: single.append(r.run_id))
+    assert len(single) == 1
+
+
+async def test_comparison_write_error_does_not_stop_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls = _batch_fake(monkeypatch)
+
+    def bad_write(*_a: Any, **_k: Any):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(run_module, "write_comparison", bad_write)
+    warnings: list[str] = []
+    results, _ = await _batch(
+        tmp_path, ["clean", "phone", "bad_line"], names=("s1",), on_warning=warnings.append
+    )
+    assert len(calls) == 3
+    assert len(results) == 3
+    assert warnings
+    assert all(w.startswith("could not write the comparison") for w in warnings)
