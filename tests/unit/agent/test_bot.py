@@ -11,12 +11,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregator,
     LLMUserAggregator,
 )
-from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.groq.llm import GroqLLMService
-from pipecat.services.groq.stt import GroqSTTService
 
 from agents.clinic_agent.config import load_config
+from agents.clinic_agent.reset import ClinicSTT, ClinicVAD
 from agents.clinic_agent.tts_edge import EdgeTTSService
 
 # Pipecat's websocket transport touches a websockets API that is deprecated upstream. The
@@ -64,9 +63,9 @@ def test_pipeline_order_and_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     listed = _SpyPipeline.last.listed
     assert [type(p) for p in listed] == [
         type(transport.input()),
-        VADProcessor,
+        ClinicVAD,
         RTVIProcessor,
-        GroqSTTService,
+        ClinicSTT,
         LLMUserAggregator,
         GroqLLMService,
         EdgeTTSService,
@@ -193,6 +192,38 @@ def test_metrics_enabled_so_the_report_shows_agent_ttfb() -> None:
     # TTFB in RTVI metrics only with enable_metrics; the first live run had none.
     task, _transport = bot.build_task(load_config(), "test-key")
     assert task.params.enable_metrics is True
+
+
+def test_pipeline_uses_resettable_vad_and_stt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bot, "Pipeline", _SpyPipeline)
+    bot.build_task(load_config(), "test-key")
+    assert _SpyPipeline.last is not None
+    listed = _SpyPipeline.last.listed
+    assert sum(isinstance(p, ClinicVAD) for p in listed) == 1
+    assert sum(isinstance(p, ClinicSTT) for p in listed) == 1
+
+
+def test_usage_metrics_enabled() -> None:
+    # EC-84: RTVI metrics carry the LLM token counts only with enable_usage_metrics.
+    task, _transport = bot.build_task(load_config(), "test-key")
+    assert task.params.enable_usage_metrics is True
+
+
+async def test_calls_reset_vad_and_stt_at_both_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bot, "Pipeline", _SpyPipeline)
+    task, transport = bot.build_task(load_config(), "test-key")
+    assert _SpyPipeline.last is not None
+    listed = _SpyPipeline.last.listed
+    calls: list[str] = []
+    for name, cls in (("vad", ClinicVAD), ("stt", ClinicSTT)):
+        proc = next(p for p in listed if isinstance(p, cls))
+        monkeypatch.setattr(proc, "reset_call", lambda name=name: calls.append(name))
+    _spy_frames(task, monkeypatch)
+    await _handler(transport, "on_client_disconnected")(transport, object())
+    assert sorted(calls) == ["stt", "vad"]
+    calls.clear()
+    await _handler(transport, "on_client_connected")(transport, object())
+    assert sorted(calls) == ["stt", "vad"]
 
 
 def test_pipecat_version_reads_package_metadata() -> None:

@@ -9,7 +9,6 @@ from pipecat.pipeline.task import PipelineParams
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
-from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIObserver,
     RTVIProcessor,
@@ -17,7 +16,6 @@ from pipecat.processors.frameworks.rtvi import (
 )
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.groq.llm import GroqLLMService
-from pipecat.services.groq.stt import GroqSTTService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.server import (
@@ -27,6 +25,7 @@ from pipecat.transports.websocket.server import (
 
 from agents.clinic_agent.config import AgentConfig
 from agents.clinic_agent.prompt import system_prompt
+from agents.clinic_agent.reset import ClinicSTT, ClinicVAD
 from agents.clinic_agent.tools import BookingStore, tool_schemas
 from agents.clinic_agent.tts_edge import EdgeTTSService
 from parakh.tts.engine import EdgeTTSEngine
@@ -52,11 +51,9 @@ def build_task(
         host=host,
         port=port,
     )
-    stt = GroqSTTService(
+    stt = ClinicSTT(
         api_key=groq_api_key,
-        settings=GroqSTTService.Settings(
-            model=config.stt_model, language=Language(config.stt_language)
-        ),
+        settings=ClinicSTT.Settings(model=config.stt_model, language=Language(config.stt_language)),
     )
     llm = GroqLLMService(
         api_key=groq_api_key,
@@ -80,11 +77,12 @@ def build_task(
     context = LLMContext(tools=tool_schemas())
     aggregators = LLMContextAggregatorPair(context)
     rtvi = RTVIProcessor()
+    vad = ClinicVAD(vad_analyzer=SileroVADAnalyzer())
 
     pipeline = Pipeline(
         [
             transport.input(),
-            VADProcessor(vad_analyzer=SileroVADAnalyzer()),
+            vad,
             rtvi,
             stt,
             aggregators.user(),
@@ -97,8 +95,12 @@ def build_task(
     task = PipelineWorker(
         pipeline,
         # Metrics on: RTVI metrics then carry STT, LLM and TTS TTFB for the report (EC-77).
+        # Usage metrics add the LLM token counts (EC-84).
         params=PipelineParams(
-            audio_in_sample_rate=rate, audio_out_sample_rate=rate, enable_metrics=True
+            audio_in_sample_rate=rate,
+            audio_out_sample_rate=rate,
+            enable_metrics=True,
+            enable_usage_metrics=True,
         ),
         observers=[RTVIObserver(rtvi)],
         # One pipeline serves every call; an idle spell between calls must not end it.
@@ -109,6 +111,8 @@ def build_task(
     async def on_client_connected(_transport, _client) -> None:
         # The pipeline outlives each call, so start this one from an empty
         # conversation and booking store. The system prompt lives in the LLM settings.
+        vad.reset_call()
+        stt.reset_call()
         context.set_messages([])
         store.reset()
         await aggregators.user().reset()
@@ -128,7 +132,10 @@ def build_task(
         # Keep the pipeline and its server up, so the next caller is accepted at once;
         # ending it here closed the server for a moment, and a caller who connected
         # then was cut off or refused. Cut off any reply still in flight instead, so
-        # none of it reaches the next caller.
+        # none of it reaches the next caller. Speech state goes too: a segment open at
+        # hang-up must not surface in the next call.
+        vad.reset_call()
+        stt.reset_call()
         await task.queue_frame(InterruptionWorkerFrame())
 
     return task, transport
