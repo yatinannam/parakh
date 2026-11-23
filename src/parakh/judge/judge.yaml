@@ -1,0 +1,17 @@
+prompt_version: judge-v1
+providers:
+  - name: groq
+    model: openai/gpt-oss-120b
+    key_env: GROQ_API_KEY
+    url: https://api.groq.com/openai/v1/chat/completions
+    rpm: 30
+    rpd: 1000
+    params: { temperature: 0, seed: 0, reasoning_effort: low, max_completion_tokens: 2048,
+              response_format: { type: json_object } }
+  - name: gemini
+    model: gemini-flash-lite-latest
+    key_env: GEMINI_API_KEY
+    url: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+    rpm: 10
+    rpd: 20
+    params: { temperature: 0, maxOutputTokens: 2048, responseMimeType: application/json }

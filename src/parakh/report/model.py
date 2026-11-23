@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from parakh.judge.model import JudgeScores
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -81,6 +83,19 @@ class Metrics(_Strict):
     agent_llm_requests: int | None = None
 
 
+class JudgeReport(_Strict):
+    status: Literal["ok", "judge_error", "rate_limited", "skipped"]
+    provider: str | None = None
+    model: str | None = None
+    model_version: str | None = None
+    prompt_version: str
+    scores: JudgeScores | None = None
+    attempts: int = 0
+    cached: bool = False
+    tokens: int | None = None
+    reason: str | None = None
+
+
 class Report(_Strict):
     schema_version: Literal[1] = 1
     parakh_version: str
@@ -101,8 +116,10 @@ class Report(_Strict):
     turns: list[TurnReport]
     metrics: Metrics
     task_success: None = None
-    judge: None = None
+    judge: JudgeReport | None = None
     warnings: list[str]
+    # Default so reports written before the judge existed still load under schema_version 1.
+    scenario_goal: str | None = None
 
 
 def write_report_json(report: Report, path: Path) -> None:
