@@ -31,9 +31,11 @@ flowchart LR
   judge["LLM judge"]
   mock_hms["Mock HMS"]
   normalizer["Script-tolerant normaliser"]
+  quota["Quota guard"]
   report["Report"]
   report_compare["Comparison page"]
   scenario["Scenario loader"]
+  scenario_pack["Hinglish scenario pack"]
   score_bargein["Barge-in scorer"]
   score_latency["Latency scorer"]
   score_task["Task success"]
@@ -75,13 +77,17 @@ flowchart LR
   cli -->|calls| report_compare
   degrader -->|produces| call_driver
   end_state_adapter -->|calls| mock_hms
+  judge -->|depends_on| quota
   judge -->|produces| report
   judge -->|calls| x_gemini
   judge -->|calls| x_groq
   normalizer -->|depends_on| x_indic_translit
+  quota -->|depends_on| budget
+  quota -->|constrained_by| x_groq
   report -->|produces| report_compare
   report -->|depends_on| x_whisper
   scenario -->|produces| tts_cache
+  scenario_pack -->|depends_on| scenario
   score_bargein -->|produces| report
   score_latency -->|produces| report
   score_task -->|depends_on| end_state_adapter
@@ -127,6 +133,9 @@ flowchart TB
   d11[/"D11 Headline = conversation loose WER"/]
   d12[/"D12 Audience: portfolio first"/]
   d14[/"D14 Own call driver; pipecat.evals complementary"/]
+  d15[/"D15 M3 split into M3a and M3b"/]
+  d16[/"D16 Judge models"/]
+  d17[/"D17 Judge on by default"/]
   d2[/"D2 Calibrate text sim in WSL"/]
   d3[/"D3 HMS = hospital mgmt system"/]
   d4[/"D4 Scripted caller"/]
@@ -140,8 +149,10 @@ flowchart TB
   doc_pipecat_evals[("pipecat.evals note")]
   doc_spec[("Design spec")]
   judge["LLM judge"]
+  m3(("M3 Indic layer + judge"))
   mock_hms["Mock HMS"]
   normalizer["Script-tolerant normaliser"]
+  quota["Quota guard"]
   r_alignment>"Turn alignment"]
   r_injection>"Judge prompt injection"]
   r_license>"Licence contamination"]
@@ -154,6 +165,7 @@ flowchart TB
   r_windows_install>"Windows install gaps"]
   report["Report"]
   scenario["Scenario loader"]
+  scenario_pack["Hinglish scenario pack"]
   score_bargein["Barge-in scorer"]
   score_wer["WER scorer"]
   t_calibrate_eval["Calibrate free-model wrapper"]
@@ -183,17 +195,26 @@ flowchart TB
   d10 -->|mitigates| r_privacy
   d14 -->|documented_in| doc_pipecat_evals
   d14 -->|documented_in| doc_spec
+  d15 -->|documented_in| doc_spec
+  d16 -->|documented_in| doc_spec
+  d17 -->|documented_in| doc_spec
   d9 -->|mitigates| r_license
   degrader -->|mitigates| r_license
   judge -->|constrained_by| c_synthetic
+  judge -->|decided_by| d16
+  judge -->|decided_by| d17
   judge -->|decided_by| d6
   judge -->|mitigates| r_injection
+  m3 -->|decided_by| d15
   mock_hms -->|decided_by| d3
   normalizer -->|mitigates| r_script
+  quota -->|constrained_by| c_free
+  quota -->|mitigates| r_quota
   r_license -->|documented_in| doc_contributing
   r_llm_behaviour -->|documented_in| doc_calibrate
   report -->|mitigates| r_llm_behaviour
   scenario -->|decided_by| d4
+  scenario_pack -->|decided_by| d9
   score_bargein -->|mitigates| r_timing
   score_wer -->|decided_by| d11
   score_wer -->|mitigates| r_alignment
@@ -260,6 +281,8 @@ flowchart LR
   subgraph g_m3[" "]
     m3(("M3 Indic layer + judge"))
     judge["LLM judge"]
+    quota["Quota guard"]
+    scenario_pack["Hinglish scenario pack"]
   end
   subgraph g_m4[" "]
     m4(("M4 HMS adapter + CI e2e"))

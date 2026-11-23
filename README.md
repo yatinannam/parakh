@@ -57,6 +57,29 @@ The same clinic agent, run through all five presets in batches of back-to-back c
 
 These numbers come from one agent on one laptop against free tiers; they show what Parakh measures and are not a benchmark of any provider.
 
+## Results from the Hinglish pack (M3a)
+
+All 14 scenarios of [`scenarios/hinglish/`](scenarios/hinglish/) ran against the same clinic agent under `clean`, with the advisory judge on, on 2026-11-23. The [M3a runbook](docs/runbooks/run-m3a.md) has the per-run table, the calibration and the run log.
+
+| Measure | Value |
+|---|---|
+| Scenarios completed under `clean` | 14 of 14 |
+| Mean loose WER (after rescoring with the final normaliser) | 6.3 %, range 0 to 21 % |
+| Strict WER | about 100 %, except the Devanagari scenario (9.5 %) and the English-heavy one (42.9 %) |
+| Judge task progress (1 to 5) | 1 or 2 on 12 of 14 calls; 5 only on the Devanagari scenario |
+| Under `phone` (4 scenarios) | Devanagari 9.5 %, Hindi numbers 7.4 %, unknown doctor 6.9 %, English-heavy 80.0 % |
+| Agent LLM use | 811 tokens per request (88,430 tokens over 109 requests) |
+| Judge use | 20 judged runs, 21,319 tokens, 1 attempt each, no fallback |
+| HTTP 429 or 402 | none |
+
+- **Recognition is not the weak part; the agent's handling is.** Loose WER is low, yet the agent rarely finishes a booking correctly. Whisper writes `साढ़े` as `साधे`, and the agent's LLM books "साधे 11" as 11:00 instead of 11:30. Whisper also splits, drops or repeats phone digits, and the agent then asks again until the call ends. It books without reading the details back in 12 of 14 calls. WER alone cannot show this; the judge's flags `wrong_details`, `repeated_question` and `no_confirmation` do.
+- **The caller can talk over the agent.** The agent's TTS splits a reply at `डॉ.` and the next sentence takes over 800 ms to synthesise, so the 800 ms end-of-turn rule fires mid-reply (EC-88).
+- **An English-heavy caller breaks on a phone line.** With Whisper language `hi`, band-limited English comes back as Devanagari phonetics, and loose WER under `phone` is 80.0 % (EC-91).
+- **The agent's reset works.** A `phone_lossy` call right after a `phone_noisy` call had a clean first turn and no false barge-in (EC-84).
+- **The judge agrees with a hand check.** On 10 calls it was within 1 point of the controller's own scores on every item, and never lowered language match for a Hinglish reply. The calibration table awaits Yatin's confirmation.
+
+These numbers come from one agent on one laptop against free tiers. They show what Parakh measures and are not a benchmark of any provider.
+
 ## Quick start
 
 Prerequisites:
@@ -64,7 +87,7 @@ Prerequisites:
 - Windows 10 or 11, or Linux. CI runs on `windows-latest` and `ubuntu-latest`.
 - Python 3.11 (pinned in `.python-version`) and [uv](https://docs.astral.sh/uv/) 0.11 or later.
 - ffmpeg on `PATH`. Parakh refuses to run without it.
-- A free [Groq](https://console.groq.com/) API key for the test agent. No credit or debit card is needed anywhere in this project.
+- A free [Groq](https://console.groq.com/) API key for the test agent and the judge. A free Gemini key is optional: it is only the judge's fallback. No credit or debit card is needed anywhere in this project.
 
 Install, including the test agent's dependency group:
 
@@ -133,19 +156,49 @@ To hear a preset on one clip: `uv run parakh degrade clip.wav --preset bad_line`
 
 **Comparison page.** `compare.html` has one table per scenario with a column per preset (status, strict and loose WER, latency p50 and p95, stop latency, did-not-yield count, false barge-ins and a link to the run's report) and bar charts of loose WER and latency p50 by preset. It is rewritten after every run of a batch, so a stopped batch still leaves a page. `compare.json` holds the same numbers.
 
+## Scenario pack
+
+[`scenarios/hinglish/`](scenarios/hinglish/) holds 14 synthetic clinic-booking scenarios that share one frozen clock (`2026-11-19T10:00:00+05:30`, so "kal" is 2026-11-20). Each has a `goal`, which the judge reads. They cover the M1 baseline and the M2 barge-in scenario (turns frozen), a second doctor, out-of-hours and slot queries, a spoken correction, "double" and "triple" digits, phone numbers in Hindi number words, an English-heavy caller, a Devanagari script, a barge-in that corrects the time, fast (+25 %) and slow (-20 %) callers with fillers, and a request for a doctor the clinic does not have. The runbook lists each scenario with its voice and purpose.
+
+```
+uv run parakh run scenarios/hinglish --agent ws://127.0.0.1:8765 --preset clean
+```
+
+A full pack batch takes about 20 to 25 minutes and about 156,000 agent LLM tokens per preset, against the agent model's 200,000 a day. On the development laptop a command that long can be killed when memory runs low, so run the pack in batches of 4 or 5 scenarios and join them with `parakh compare <run dir>... --out runs/m3a-pack`, or resume a stopped batch:
+
+```
+uv run parakh run scenarios/hinglish --agent ws://127.0.0.1:8765 --preset clean --resume runs/<batch_id>
+```
+
+`--resume` skips every (scenario, preset) pair that already has a `completed` report in that batch and runs the rest. The comparison page shows the newest report per pair. Use it after a run ends `rate_limited` (the agent reported a Groq 429), after Ctrl+C, or after the laptop slept mid-call.
+
+## LLM judge (advisory)
+
+Parakh asks an LLM to rate each call, because WER and latency cannot show whether the agent did its job. The judge is advisory: it never changes a run's status or the exit code.
+
+- **Free tiers, synthetic data only.** The judge calls Groq `openai/gpt-oss-120b` first, which has its own free per-model limits apart from the agent's model. Gemini `gemini-flash-lite-latest` is the fallback, used only if `GEMINI_API_KEY` is set. Both are configured in `src/parakh/judge/judge.yaml`. The payload holds only the scenario goal, the scripted lines, the agent's transcript of them, the agent's replies, barge-in results and the run status. It never holds paths, URLs, agent info or warnings.
+- **Scores and flags.** Five scores from 1 to 5: understanding, language match, interruption handling (null without a barge-in), task progress and politeness. Also a short rationale and flags such as `wrong_details`, `no_confirmation`, `repeated_question` and `ignored_interruption`. Hinglish in either script counts as a correct register.
+- **Robust to bad replies.** The judge runs in JSON object mode at temperature 0. An invalid reply is retried (4 attempts per provider), then the next provider is tried, then the result is `judge_error` with a reason that names the failing field. A transcript that contains instructions is treated as data and flagged.
+- **Statuses.** `ok`, `skipped` (nothing to judge, or no key), `judge_error` and `rate_limited`.
+- **Cached and reproducible.** Verdicts are cached in `.cache/judge/` by provider, model, prompt version and payload, and the report records the model id, the model version and the prompt version (`judge-v1`).
+- **Quota guard.** A token bucket and a daily counter per model keep Parakh inside the free limits. On HTTP 429 it honours `Retry-After` (and gives up at once if that is over 60 s); on HTTP 402 it disables the provider and never retries.
+
+`parakh run` judges by default; pass `--no-judge` to skip it. `parakh judge <run dir>...` rates finished runs, or re-rates them after a rubric change (`--force` ignores the cache). It exits 2 when any report ends `judge_error` or `rate_limited`.
+
 ## CLI reference
 
 | Command | What it does | Options |
 |---|---|---|
-| `parakh run SCENARIO --agent URL` | Synthesises the caller audio (cached), runs real-time calls for each scenario and preset, scores them, and writes `report.json` and `report.html` to a new run directory per run. More than one run (several presets, or a scenario directory) is a batch: runs go in `runs/<batch_id>/` and `compare.html` and `compare.json` are rewritten after every run. | `--agent` ws:// or wss:// URL (required). `--preset` (repeatable, or `all`; default `clean`): `clean`, `phone`, `phone_noisy`, `phone_lossy`, `bad_line`. `--runs-dir` (default `runs`). `--agent-rate` sample rate sent to the agent (default 16000). `--cache-dir` (default `.cache/tts`). |
+| `parakh run SCENARIO --agent URL` | Synthesises the caller audio (cached), runs real-time calls for each scenario and preset, scores them, and writes `report.json` and `report.html` to a new run directory per run. More than one run (several presets, or a scenario directory) is a batch: runs go in `runs/<batch_id>/` and `compare.html` and `compare.json` are rewritten after every run. | `--agent` ws:// or wss:// URL (required). `--preset` (repeatable, or `all`; default `clean`): `clean`, `phone`, `phone_noisy`, `phone_lossy`, `bad_line`. `--runs-dir` (default `runs`). `--agent-rate` sample rate sent to the agent (default 16000). `--cache-dir` (default `.cache/tts`). `--judge/--no-judge` (default on) rates each run with the advisory judge. `--resume BATCH_DIR` skips the pairs that already completed in that batch. |
 | `parakh degrade CLIP --preset P` | Degrades one 16-bit mono WAV with a preset and writes `<clip>.<preset>.wav`; prints the SNR, lost frames and clipped samples. | `--preset` (required). `--out` output path. `--rate` output sample rate (default 16000). `--seed` (default 0). `--cache-dir` (default `.cache/tts`). |
-| `parakh compare RUN_DIR...` | Builds `compare.html` and `compare.json` from existing run directories, for example to join runs from two batches. | `--out` directory for the page (default: the parent of the first run directory). |
+| `parakh compare RUN_DIR...` | Builds `compare.html` and `compare.json` from existing run directories, for example to join runs from several batches. | `--out` directory for the page (default: the common parent of the run directories). |
+| `parakh judge RUN_DIR...` | Rates finished runs with the advisory judge, then rewrites `report.json` and `report.html`. Exits 2 when any report ends `judge_error` or `rate_limited`. | `--force` asks again even when a verdict is cached. |
 | `parakh tts build PATH...` | Synthesises and caches the caller audio for scenario files or directories, and prints how many clips were built or cached. | `--cache-dir` (default `.cache/tts`). |
 | `parakh report RUN_DIR` | Re-renders `report.html` from the run's `report.json`. | |
 | `parakh budget PATH...` | Estimates Groq STT and LLM requests and audio seconds for scenario files or directories, against the free-tier limits. Exits 2 if over. | `--preset` (repeatable, or `all`), because the estimate scales with the number of runs. |
 | `parakh version` | Prints the Parakh version. | |
 
-The estimate counts 3 STT and 3 LLM requests per caller turn, plus one LLM request for the agent's greeting, times the number of presets. That is a guide, not a bound: the clinic agent's STT runs once per VAD segment, tool calls add LLM turns, and noise presets can add STT requests when the agent's VAD reacts to noise. The seven M2 runs used 54 STT and 63 LLM requests against an estimate of 84 and 91.
+The estimate counts 3 STT and 3 LLM requests per caller turn, plus one LLM request for the agent's greeting, times the number of presets. It also gives agent LLM tokens (900 per request, measured at 811 in M3a) and one judge call per run. That is a guide, not a bound: the clinic agent's STT runs once per VAD segment, tool calls add LLM turns, and noise presets can add STT requests when the agent's VAD reacts to noise. The seven M2 runs used 54 STT and 63 LLM requests against an estimate of 84 and 91.
 
 Exit codes of `parakh run`; a batch exits with the highest code of its runs. Every status still writes `report.json` and `report.html`. Barge-in results do not change the exit code until the M4 thresholds.
 
@@ -153,7 +206,7 @@ Exit codes of `parakh run`; a batch exits with the highest code of its runs. Eve
 |---|---|
 | 0 | `completed`: every caller turn was played and answered, or the agent hung up after answering the last one. |
 | 1 | `agent_hung_up_early`: the agent closed the socket before the first caller turn. |
-| 2 | `turn_timeout`, `call_timeout`, `agent_disconnected`, `agent_unreachable`, `protocol_error`, `internal_error`, `interrupted` (Ctrl+C: the partial report and the comparison are written first), or any status when the caller could not keep its 20 ms pace (`timing_unreliable`). |
+| 2 | `turn_timeout`, `call_timeout`, `agent_disconnected`, `agent_unreachable`, `protocol_error`, `internal_error`, `rate_limited` (the agent reported a 429; resumable), `interrupted` (Ctrl+C: the partial report and the comparison are written first), or any status when the caller could not keep its 20 ms pace (`timing_unreliable`). |
 
 Errors found before a call starts (unknown preset, a URL that is not ws:// or wss://, an invalid scenario, ffmpeg missing, caller audio that edge-tts cannot synthesise or ffmpeg cannot decode) print a message without a traceback, write no run directory and exit 2. `tts build` exits 2 the same way for an invalid scenario, a synthesis or decode failure and a missing ffmpeg, and `report` for a `report.json` that is missing, not UTF-8 or not a valid report.
 
@@ -177,8 +230,8 @@ Errors found before a call starts (unknown preset, a URL that is not ws:// or ws
 1. Unicode NFC; remove zero-width joiners and non-joiners; flag Perso-Arabic script as `script_unsupported`.
 2. Devanagari to Roman with `indic-transliteration` (ITRANS), word by word. Candra o (`ॉ`, `ऑ`) is read as `ो`, `ओ` first, so `डॉक्टर` gives `doktar`. Anusvara and chandrabindu become `n`, or `m` before p, b and m, so `मैं` gives `main`. The inherent final schwa is dropped when ITRANS ends a word in a short `a` after a consonant, so `कल` gives `kal`.
 3. Lowercase, keep only `a-z` and `0-9`, split into tokens.
-4. Number words to digits: English words up to ninety-nine, "X hundred [and] Y", "double" and "triple", and Hindi words for 0 to 10; then adjacent digit tokens are joined, so a phone number in groups becomes one token.
-5. Loose phonetic key for words: `c` (not before h) to `k`, `ph` to `f`, `w` to `v`, `q` to `k`, `z` to `j`, final `ov` to `o`, `ee` to `i`, `oo` to `u`, double letters to single (`aa` to `a`), `y` between vowels dropped; then a small variant table (`nahin` and `nai` to `nahi`, `men` and `me` to `mein`, `rav` to `rao`). Ambiguous pairs such as `main` and `mein` stay distinct.
+4. Number words to digits, looked up by loose key: English words, "X hundred [and] Y", "double" and "triple", Hindi words for 0 to 100 (except 13 and 60, which collide with `tera` and `साथ`), "sau", Devanagari numerals, and "oh" as 0 between digits; then adjacent digit tokens are joined, so a phone number in groups becomes one token. Fillers (`um`, `uh`, `hm`, `अम`, `उम`, `हम्म`) are dropped on both sides.
+5. Loose phonetic key for words: `c` (not before h) to `k`, `ph` to `f`, `w` to `v`, `q` to `k`, `z` to `j`, final `ov` to `o`, `ee` to `i`, `oo` to `u`, double letters to single (`aa` to `a`), `y` dropped only between two different vowels, a final `h` after a vowel dropped only in words of 4 or more letters; then a variant table grown from observed Whisper spellings (`nahin` and `nai` to `nahi`, `men` and `me` to `mein`, `yeh` to `ye`). The table never merges two common words: `main` and `mein`, `कह` and `का`, `बताया` and `बता` stay distinct. Urdu-script turns are listed and left out of loose WER.
 
 Two worked examples, both checked against the current code:
 
@@ -189,7 +242,7 @@ Two worked examples, both checked against the current code:
 | `nine eight four five, zero one two, three four five` (reference) | number words to digits, then joined | `9845012345` |
 | `9845 012 345` (Whisper) | adjacent digit groups joined | `9845012345` |
 
-The normaliser has a golden file of pairs that must match and pairs that must not ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
+The normaliser has a golden file of 262 pairs: 199 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 8 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
 
 ## Architecture
 
@@ -210,7 +263,8 @@ flowchart LR
   compare["compare.html<br/>across presets"]
   hms["Mock HMS, M4"]
   task["Task success, M4"]
-  judge["LLM judge, M3"]
+  judge["LLM judge, advisory"]
+  quota["Quota guard<br/>bucket, daily counter, 429 backoff"]
 
   scenario --> tts
   tts --> degrader
@@ -227,11 +281,12 @@ flowchart LR
   agent -.->|"tool calls"| hms
   hms -.-> task
   task -.-> report
-  recorder -.-> judge
-  judge -.-> report
+  recorder --> judge
+  judge --> report
+  quota --> judge
 ```
 
-Dashed parts are planned. The agent runs as a separate process. Scoring runs after the call ends, so local models never compete with the live call for CPU. Because the transport is Pipecat's standard protobuf frame protocol, Parakh tests an unmodified Pipecat agent. The [knowledge graph](docs/kg/README.md) maps every component, decision, risk and document; the [design spec](docs/superpowers/specs/2026-11-15-parakh-design.md) has the details.
+Dashed parts are planned (M4). The agent runs as a separate process. Scoring runs after the call ends, so local models never compete with the live call for CPU. Because the transport is Pipecat's standard protobuf frame protocol, Parakh tests an unmodified Pipecat agent. The [knowledge graph](docs/kg/README.md) maps every component, decision, risk and document; the [design spec](docs/superpowers/specs/2026-11-15-parakh-design.md) has the details.
 
 ## Scenario format
 
@@ -277,7 +332,8 @@ limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 | M0 | Repository hygiene, CI, tooling, Task 1 evaluation of Calibrate | Complete (2026-11-16) |
 | M1 | One Hinglish scenario, clean audio, Pipecat clinic test agent, latency and strict and loose WER, JSON and HTML report | Complete (2026-11-17) |
 | M2 | Degradation presets (telephone band, 8 kHz, G.711 mu-law, noise, packet loss, clipping), barge-in with stop latency, comparison page, batch runs | Complete (2026-11-21) |
-| M3 | Normaliser hardened on 150 or more golden pairs, 10-20 Hinglish scenarios, LLM judge; then Kannada-English and Tamil-English | Planned |
+| M3a | Hinglish pack of 14 scenarios, normaliser hardened on 262 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
+| M3b | Kannada-English and Tamil-English scenarios, a small real-recording set, the Indic Parler-TTS benchmark, the heavy-model lock | Next |
 | M4 | Mock hospital management system and end-state adapter for deterministic task success; end-to-end CI workflow | Planned |
 | M5 | Public release: scenario pack, comparison run across presets and agent setups | Planned |
 
@@ -292,12 +348,13 @@ src/parakh/
   transport/           Pipecat protobuf codec, RTVI parsing, WebSocket connection
   score/               Latency, barge-in stop latency, script-tolerant normaliser, strict and loose WER
   report/              report.json model, report.html, and the comparison page across presets
-  budget/              Groq usage estimate and the remote_call() guard
+  judge/               Advisory LLM judge: prompt, strict scores, providers (judge.yaml), cache, fallback
+  budget/              Groq usage estimate, the remote_call() guard, token bucket, daily counter and 429 backoff
   audio.py             WAV, dBFS, resampling, framing, silence trim
   run.py               One scored run, batch runs and the exit code
-  cli.py               Command-line interface
+  cli.py               Command-line interface (cli_report.py: compare, report, judge; cli_util.py: helpers)
 agents/clinic_agent/   Pipecat test agent: Silero VAD, Groq STT and LLM, edge-tts
-scenarios/hinglish/    Scenario files: booking and barge-in
+scenarios/hinglish/    The 14-scenario Hinglish pack
 tests/unit/            Unit tests; no network, no keys
 tests/integration/     Real-time calls against an in-process fake Pipecat agent
 tests/golden/          Normaliser pairs that must and must not match
@@ -335,6 +392,7 @@ CI runs on Ubuntu and Windows and installs ffmpeg. Unit and integration tests ne
 | [Design spec](docs/superpowers/specs/2026-11-15-parakh-design.md) | Goals, architecture, components, testing, CI, milestones, edge-case register, decisions. |
 | [M1 runbook](docs/runbooks/run-m1.md) | Running the agent and the scenario, reading the report, troubleshooting, the run log. |
 | [M2 runbook](docs/runbooks/run-m2.md) | The five presets, batch runs, the comparison page, what the M2 runs showed, Groq requests per run, troubleshooting, the run log. |
+| [M3a runbook](docs/runbooks/run-m3a.md) | The Hinglish pack, the judge, resume, measured Groq use, what the M3a runs showed, judge calibration, the run log. |
 | [Calibrate analysis](docs/research/2026-11-15-calibrate-analysis.md) | Task 1: what Calibrate covers and lacks, the free-model run, and the verdict. |
 | [`pipecat.evals` note](docs/research/2026-11-16-pipecat-evals-note.md) | What Pipecat's eval harness does and needs, and decision D14. |
 | [Knowledge graph](docs/kg/README.md) | `graph.yaml` plus generated Mermaid views of the pipeline, governance and milestones. |
