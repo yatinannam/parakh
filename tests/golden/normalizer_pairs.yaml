@@ -82,6 +82,8 @@ must_match:
   - ["dopahar", "दोपहर", hinglish]
   - ["samay", "समय", hinglish]
   - ["jaldi", "जल्दी", hinglish]
+  - ["naya", "नया", hinglish]
+  - ["bataya", "बताया", hinglish]
   - ["kaun se slots khaali hain", "कौन से स्लॉट्स खाली हैं", hinglish]
   - ["hello mujhe doctor rao ke saath appointment chahiye", "हेलो मुझे डॉक्टर राव के साथ अपोइंट्मेंट चाहिए", hinglish]  # observed
   - ["kal subah agar possible ho toh saadhe das baje", "कल सुबा अगर पॉसिबल हो तो साधे दास बजे.", hinglish]  # observed
@@ -204,6 +206,12 @@ must_match:
   - ["nine oh eight", "908", number]
   - ["nine eight oh oh one", "98001", number]
   - ["my number is nine zero three five, seven seven eight, eight nine nine", "my number is 9035778899", number]
+  - ["nine eight double oh one", "98001", number]
+  - ["triple oh", "000", number]
+  - ["डबल ज़ीरो", "00", number]
+  - ["जीरो", "0", number]
+  - ["डबल फाइव", "55", number]
+  - ["नाइन एट फाइव", "985", number]
 
 must_not_match:
   - ["main", "mein", no_match]
@@ -253,6 +261,12 @@ must_not_match:
   - ["keh", "ke", no_match]
   - ["mujhe", "tujhe", no_match]
   - ["kya", "kyun", no_match]
+  - ["बताया", "बता", no_match]
+  - ["नया", "ना", no_match]
+  - ["आया", "आ", no_match]
+  - ["मिलाया", "मिला", no_match]
+  - ["टू", "2", no_match]
+  - ["फोर", "4", no_match]
 
 known_gaps:
   - { a: "up", b: "अप", expect: match, why: "a variant ap would merge up with aap (you)" }

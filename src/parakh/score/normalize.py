@@ -78,13 +78,18 @@ def _split_tokens(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9]", " ", text.lower()).split()
 
 
+def _drop_y(m: re.Match[str]) -> str:
+    return "y" if m.group(1) == m.group(2) else ""
+
+
 def _spell(token: str) -> str:
     """One pass of the spelling rules; `_loose_key` repeats it until nothing changes."""
     token = re.sub(r"(?:c+h+)+", "ch", token)  # cch, chh, chch (अच्छा) all read ch
     token = re.sub(r"c(?!h)", "k", token)
     token = token.replace("ph", "f").replace("w", "v").replace("q", "k").replace("z", "j")
-    # y between vowels goes before doubles collapse, so kaya gives ka in one pass.
-    token = re.sub(r"(?<=[aeiou])y(?=[aeiou])", "", token)
+    # y between two different vowels drops (chahiye, jayega). Between equal vowels it stays,
+    # or बताया would read as बता and नया as ना.
+    token = re.sub(r"(?<=([aeiou]))y(?=([aeiou]))", _drop_y, token)
     token = token.replace("ee", "i").replace("oo", "u")
     token = re.sub(r"(.)\1+", r"\1", token)
     token = re.sub(r"ov$", "o", token)
@@ -122,7 +127,13 @@ def _key_table(groups: Iterable[tuple[int, Iterable[str]]]) -> dict[str, int]:
 # words the key is a superset of the raw token, which keeps the rule idempotent.
 _EN_UNITS = _key_table((v, (w,)) for v, w in enumerate(numbers.EN_UNITS))
 _EN_TENS = _key_table(((i + 2) * 10, (w,)) for i, w in enumerate(numbers.EN_TENS))
-_WORDS = _key_table([*((v, (w,)) for v, w in enumerate(numbers.EN_UNITS)), *numbers.HINDI.items()])
+_WORDS = _key_table(
+    [
+        *((v, (w,)) for v, w in enumerate(numbers.EN_UNITS)),
+        *numbers.EN_DEVANAGARI.items(),
+        *numbers.HINDI.items(),
+    ]
+)
 _DOUBLE = {_spelling_key(s) for s in numbers.DOUBLE}
 _TRIPLE = {_spelling_key(s) for s in numbers.TRIPLE}
 _HUNDRED = {_spelling_key(s) for s in numbers.HUNDRED}
@@ -166,8 +177,11 @@ def _hundreds(keys: list[str], i: int) -> tuple[int, int] | None:
 
 
 def _single_digit(key: str) -> str | None:
+    """The digit after double or triple: a digit token, a digit word, or oh (key o) as 0."""
     if len(key) == 1 and key.isdigit():
         return key
+    if key == "o":
+        return "0"
     value = _WORDS.get(key)
     return None if value is None or value > 9 else str(value)
 

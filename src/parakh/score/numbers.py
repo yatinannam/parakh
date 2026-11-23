@@ -16,6 +16,18 @@ EN_TENS: tuple[str, ...] = (
     "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
 )  # fmt: skip
 
+# English digit words as Groq Whisper writes them in Devanagari. Three are left out because
+# their keys are common words: वन (van, forest), टू (tu, you) and फोर (for).
+EN_DEVANAGARI: dict[int, tuple[str, ...]] = {
+    0: ("ज़ीरो", "जीरो"),
+    3: ("थ्री",),
+    5: ("फाइव", "फ़ाइव"),
+    6: ("सिक्स",),
+    7: ("सेवन",),
+    8: ("एट",),
+    9: ("नाइन",),
+}
+
 DOUBLE: tuple[str, ...] = ("double", "डबल")
 TRIPLE: tuple[str, ...] = ("triple", "ट्रिपल")
 HUNDRED: tuple[str, ...] = ("hundred", "sau", "सौ")
