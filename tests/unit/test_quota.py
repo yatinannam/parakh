@@ -192,3 +192,32 @@ def test_looks_rate_limited():
     assert looks_rate_limited("Rate limit reached")
     assert not looks_rate_limited("timeout")
     assert not looks_rate_limited("port 14290 closed")
+
+
+async def test_bucket_caps_refill_at_capacity():
+    clock = Clock()
+    bucket = TokenBucket(2, clock=clock)
+    clock.now += 120.0  # idle far longer than a full refill
+    await bucket.acquire(clock.sleep)
+    await bucket.acquire(clock.sleep)
+    assert clock.slept == []
+    await bucket.acquire(clock.sleep)
+    assert clock.slept == [pytest.approx(30.0)]
+
+
+async def test_bucket_refill_is_counted_once():
+    clock = Clock()
+    bucket = TokenBucket(2, clock=clock)
+    for _ in range(4):
+        await bucket.acquire(clock.sleep)
+    assert clock.slept == [pytest.approx(30.0), pytest.approx(30.0)]
+
+
+async def test_bucket_partial_refill_sleeps_the_remainder():
+    clock = Clock()
+    bucket = TokenBucket(2, clock=clock)
+    await bucket.acquire(clock.sleep)
+    await bucket.acquire(clock.sleep)
+    clock.now += 10.0  # a third of a token
+    await bucket.acquire(clock.sleep)
+    assert clock.slept == [pytest.approx(20.0)]
