@@ -233,3 +233,66 @@ async def test_daily_counter_shared_across_runs(tmp_path: Path) -> None:
     assert (await r.judge(rep("a"))).status == "ok"
     out = await r.judge(rep("b"))
     assert out.status == "rate_limited" and len(fake.requests) == 1
+
+
+def _no_run_of(key: str, text: str, n: int = 8) -> bool:
+    return not any(key[i : i + n] in text for i in range(len(key) - n + 1))
+
+
+async def _reason_for_body(tmp_path: Path, key: str, body: str) -> str:
+    fake = Fake(lambda r: httpx.Response(401, text=body))
+    out = await runner(tmp_path, fake, {"GROQ_API_KEY": key}).judge(rep())
+    assert out.reason is not None
+    return out.reason
+
+
+async def test_key_straddling_the_body_cut_is_scrubbed(tmp_path: Path) -> None:
+    key = "groq-test-key-alpha-bravo-charlie"
+    for pad in (170, 185, 190, 195, 199):
+        reason = await _reason_for_body(tmp_path, key, "x" * pad + key + " tail")
+        assert _no_run_of(key, reason), reason
+
+
+async def test_key_split_by_newline_is_scrubbed(tmp_path: Path) -> None:
+    key = "groq-test-key-alpha-bravo-charlie"
+    reason = await _reason_for_body(tmp_path, key, "bad " + key[:12] + "\n" + key[12:])
+    assert _no_run_of(key, reason), reason
+
+
+async def test_url_encoded_key_is_scrubbed(tmp_path: Path) -> None:
+    key = "groq test/key+alpha bravo"
+    reason = await _reason_for_body(tmp_path, key, "bad key groq%20test%2Fkey%2Balpha%20bravo")
+    assert "alpha" not in reason and "%2F" not in reason, reason
+
+
+async def test_validation_failure_names_the_field(tmp_path: Path) -> None:
+    bad = json.dumps({**GOOD, "understanding": 6})
+    fake = Fake(lambda r: groq_ok(bad))
+    out = await runner(tmp_path, fake).judge(rep())
+    assert out.status == "judge_error" and out.attempts == 4 and out.reason is not None
+    assert "invalid reply after 4 attempts: understanding: " in out.reason
+    assert "less than or equal to 5" in out.reason
+
+
+async def test_rate_limit_fallback_never_sleeps_long(tmp_path: Path) -> None:
+    sleeps: list[float] = []
+
+    async def rec(s: float) -> None:
+        sleeps.append(s)
+
+    def h(r: httpx.Request) -> httpx.Response:
+        if r.url.host == "api.groq.com":
+            return httpx.Response(429, headers={"Retry-After": "3600"})
+        return gem_ok()
+
+    fake = Fake(h)
+    r = JudgeRunner(
+        load_config(),
+        {"GROQ_API_KEY": GROQ_KEY, "GEMINI_API_KEY": GEM_KEY},
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=fake.transport,
+        sleep=rec,
+    )
+    assert (await r.judge(rep())).provider == "gemini"
+    assert all(s < 60 for s in sleeps), sleeps

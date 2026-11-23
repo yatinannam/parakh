@@ -3,11 +3,14 @@
 import asyncio
 import hashlib
 import json
+import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
+from pydantic import ValidationError
 
 from parakh.budget.guard import RealDataRefused
 from parakh.budget.quota import (
@@ -46,6 +49,10 @@ class _Ended(Exception):
 
 
 def _first_line(exc: Exception) -> str:
+    if isinstance(exc, ValidationError) and exc.errors():
+        err = exc.errors()[0]
+        loc = ".".join(str(part) for part in err["loc"]) or "reply"
+        return f"{loc}: {err['msg']}"
     return (str(exc).strip().splitlines() or [type(exc).__name__])[0]
 
 
@@ -102,11 +109,19 @@ class JudgeRunner:
             {"status": status, "prompt_version": self._config.prompt_version, **fields}
         )
 
+    def _redact(self, text: str) -> str:
+        """Replace every key, its URL-encoded form, and a whitespace-broken key (whole text)."""
+        keys = sorted((k for k in self._keys.values() if k), key=len, reverse=True)
+        for key in keys:
+            for form in (key, quote(key, safe="")):
+                text = text.replace(form, "***")
+        compact = re.sub(r"\s+", "", text)
+        if any(key in compact for key in keys):
+            return "***"
+        return text
+
     def _scrub(self, text: str) -> str:
-        for key in sorted(self._keys.values(), key=len, reverse=True):
-            if key:
-                text = text.replace(key, "***")
-        return text[:REASON_MAX]
+        return self._redact(text)[:REASON_MAX]
 
     async def judge(self, report: Report, *, force: bool = False) -> JudgeReport:
         if not reached_turns(report) and not any(t.agent_text for t in report.turns):
@@ -224,7 +239,7 @@ class JudgeRunner:
         except httpx.HTTPError as exc:
             raise _Ended("error", f"transport error: {type(exc).__name__}") from exc
         if not 200 <= resp.status_code < 300:
-            body = resp.text.strip().replace("\n", " ")[:_BODY_CHARS]
+            body = " ".join(self._redact(resp.text).split())[:_BODY_CHARS]
             why = f"HTTP {resp.status_code}" + (f": {body}" if body else "")
             raise _Ended("error", why)
         return resp
