@@ -118,10 +118,10 @@ Pass `--no-judge` to `parakh run` to skip the judge.
 
 | Item | M3a measurement |
 |---|---|
-| Agent LLM, clean pack (15 runs) | 109 requests, 88,430 tokens, 811 tokens per request (from the agent's RTVI usage metrics, `metrics.agent_llm_requests` and `agent_llm_tokens`) |
-| Agent LLM requests per run | 6 to 9 (estimate: 3 per turn plus the greeting, 13 for a 4-turn scenario) |
-| Agent log, all 22 runs of the day | 168 STT and 173 LLM requests |
-| Judge | 15,967 tokens over 15 calls, about 1,060 per call, 1 attempt each, no fallback |
+| Agent LLM, clean pack (15 runs: the 14 completed and the interrupted `7926bbeb`, which made 1 request) | 109 requests, 88,430 tokens, 811 tokens per request (from the agent's RTVI usage metrics, `metrics.agent_llm_requests` and `agent_llm_tokens`) |
+| Agent LLM requests per completed run | 6 to 9 (estimate: 3 per turn plus the greeting, 13 for a 4-turn scenario) |
+| Agent log, all 21 runs of the day | 168 STT and 173 LLM requests |
+| Judge, all 21 runs | 20 judged (21,319 tokens, about 1,070 per call, 1 attempt each, no fallback); 1 skipped (`phone_noisy`, nothing to judge) |
 | HTTP 429 or 402 | none |
 
 The estimate's planning guess of 1500 tokens per request was replaced with the measured figure, rounded up to 900 (`LLM_TOKENS_PER_REQUEST`).
