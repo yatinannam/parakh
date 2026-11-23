@@ -213,6 +213,18 @@ must_match:
   - ["डबल फाइव", "55", number]
   - ["नाइन एट फाइव", "985", number]
 
+  # --- observed in the M3a live runs ---
+  - ["acha to fir", "अच्छ तो फिर", variant]  # observed
+  - ["doctor iyer", "डॉक्टर अयर", hinglish]  # observed
+  - ["iyer", "अय्यर", hinglish]  # was a known gap; fixed by the ayar variant (M3a)
+  - ["Dr. Rao", "doctor rao", variant]  # observed
+  - ["bye", "बाए", loanword]  # observed
+  - ["bye", "बइए", loanword]  # observed
+  - ["umm hello", "hello", variant]
+  - ["hello", "अम हलो", variant]  # observed
+  - ["hmm theek hai", "हम्म ठीक है", variant]
+  - ["uh haan", "हाँ", variant]
+
 must_not_match:
   - ["main", "mein", no_match]
   - ["मैं", "में", no_match]
@@ -268,6 +280,10 @@ must_not_match:
   - ["टू", "2", no_match]
   - ["फोर", "4", no_match]
 
+  # --- fillers never swallow real words (M3a) ---
+  - ["हम आएंगे", "हम्म आएंगे", no_match]
+  - ["i am here", "i here", no_match]
+
 known_gaps:
   - { a: "up", b: "अप", expect: match, why: "a variant ap would merge up with aap (you)" }
   - { a: "follow up", b: "फॉलो अप", expect: match, why: "observed; अप reads ap, and a variant ap would merge up with aap (you)" }
@@ -275,5 +291,5 @@ known_gaps:
   - { a: "terah", b: "13", expect: match, why: "terah loses its final h and reads tera, which is also tera (your); 13 is left out of the number words so that tera never becomes a digit" }
   - { a: "साठ", b: "60", expect: match, why: "साठ (60) and साथ (with) both read sath, and saath (with) is far more common, so 60 is left out of the number words" }
   - { a: "aapka", b: "आपका", expect: match, why: "ITRANS keeps the medial schwa (apaka against apka), and the consonant skeleton pk is too short for the fallback" }
-  - { a: "iyer", b: "अय्यर", expect: match, why: "अय्यर reads ayar; no spelling rule links it to iyer, and the skeleton r is too short for the fallback" }
   - { a: "woh", b: "वह", expect: match, why: "वह reads vah, the same key as वाह (wow); a variant vah to vo would merge them" }
+  - { a: "9611223344", b: "9611 तू तू थी 344", expect: match, why: "observed; Whisper wrote English two as तू and three as थी, which are common Hindi words (you, was), so they are not number words" }

@@ -45,7 +45,19 @@ VARIANTS: dict[str, str] = {
     "plis": "please",  # प्लीस
     "taim": "time",  # टाइम
     "fone": "fon",  # phone, फ़ोन
+    # Observed in the M3a live runs (Groq Whisper, language hi).
+    "ach": "acha",  # अच्छ, written without the final matra
+    "ayar": "ier",  # अयर for the name Iyer
+    "dr": "doktor",  # Dr.
+    "bae": "bai",  # बाए for bye
+    "baie": "bai",  # बइए, बाइए for bye
 }
+
+# Hesitation fillers carry no content, and a reference may leave them out, so they are
+# dropped on both sides. Devanagari fillers go before transliteration, because हम्म would
+# read ham (हम, we) and अम would read am (English "am"); Roman fillers go by loose key.
+_DEVANAGARI_FILLERS = frozenset({"अम", "अम्म", "उम", "उम्म", "हम्म", "हम्मम"})
+_FILLER_KEYS = frozenset({"um", "uh", "hm"})
 
 _PERSO_ARABIC = re.compile("[؀-ۿ]")
 # Devanagari letters and signs, excluding danda and double danda.
@@ -70,8 +82,12 @@ def _transliterate_word(word: str) -> str:
     return itrans.replace(".", "")
 
 
+def _romanize_word(word: str) -> str:
+    return " " if word in _DEVANAGARI_FILLERS else f" {_transliterate_word(word)} "
+
+
 def _romanize_devanagari(text: str) -> str:
-    return _DEVANAGARI_RUN.sub(lambda m: f" {_transliterate_word(m.group(0))} ", text)
+    return _DEVANAGARI_RUN.sub(lambda m: _romanize_word(m.group(0)), text)
 
 
 def _split_tokens(text: str) -> list[str]:
@@ -236,10 +252,12 @@ def normalize(text: str) -> Normalized:
     text = unicodedata.normalize("NFC", text).replace("\u200c", "").replace("\u200d", "")
     unsupported = bool(_PERSO_ARABIC.search(text))
     text = text.translate(_DEVANAGARI_DIGITS)
-    # 2. Devanagari to loose ITRANS.
+    # 2. Devanagari to loose ITRANS, dropping Devanagari fillers.
     text = _romanize_devanagari(text)
-    # 3. Lowercase, strip everything outside [a-z0-9], split, loose key for non-digit tokens.
+    # 3. Lowercase, strip everything outside [a-z0-9], split, loose key for non-digit tokens,
+    # then drop Roman fillers.
     keys = [t if t.isdigit() else _loose_key(t) for t in _split_tokens(text)]
+    keys = [k for k in keys if k not in _FILLER_KEYS]
     # 4. Number words by key, oh between digits, then concatenate adjacent digit tokens.
     tokens = _join_digits(_oh_as_zero(_numbers(keys)))
     return Normalized(tokens=tokens, script_unsupported=unsupported)
