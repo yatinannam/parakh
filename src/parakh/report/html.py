@@ -27,6 +27,11 @@ def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%"
 
 
+def _score(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.1f}"
+
+
+ENV.filters["score"] = _score
 ENV.filters["ms"] = _ms
 ENV.filters["pct"] = _pct
 

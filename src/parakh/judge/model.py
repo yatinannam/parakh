@@ -37,6 +37,18 @@ class JudgeScores(BaseModel):
     def _known_flags(cls, value: list[str]) -> list[str]:
         return [f for f in value if f in FLAGS]
 
+    def mean(self) -> float:
+        """Mean of the scores that are not null."""
+        values = [
+            self.understanding,
+            self.language_match,
+            self.task_progress,
+            self.politeness,
+            self.interruption_handling,
+        ]
+        present = [v for v in values if v is not None]
+        return sum(present) / len(present)
+
 
 def parse_scores(text: str, *, has_barge_in: bool) -> JudgeScores:
     """Validate one reply. Raises ValueError (pydantic's ValidationError is one)."""

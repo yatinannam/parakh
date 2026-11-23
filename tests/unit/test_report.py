@@ -1,14 +1,17 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from parakh.caller.driver import CallResult, CallStatus
 from parakh.caller.pacer import JitterStats
+from parakh.judge.model import JudgeScores
 from parakh.report.build import build_report, interrupted_report
 from parakh.report.html import render_html, write_report_html
 from parakh.report.model import (
     BargeInReport,
     JitterModel,
+    JudgeReport,
     LatencyStatsModel,
     Metrics,
     Report,
@@ -381,3 +384,78 @@ def test_agent_token_usage_summed():
     none = _status_report("completed", [], [tokens("x")])
     assert (none.metrics.agent_llm_tokens, none.metrics.agent_llm_requests) == (None, None)
     assert "Agent LLM tokens" not in render_html(none)
+
+
+def _judged(**scores: int | None) -> Report:
+    base = {
+        "understanding": 4,
+        "language_match": 5,
+        "task_progress": 4,
+        "politeness": 5,
+        "interruption_handling": None,
+        "rationale": "<b>fine</b> & clear",
+        "flags": ["off_script", "language_mismatch"],
+    }
+    judge = JudgeReport(
+        status="ok",
+        provider="groq",
+        model="openai/gpt-oss-120b",
+        model_version="gpt-oss-120b-v1",
+        prompt_version="v1",
+        scores=JudgeScores.model_validate({**base, **scores}),
+        cached=True,
+    )
+    return make_report().model_copy(update={"judge": judge})
+
+
+def test_html_shows_judge_section():
+    html = render_html(_judged())
+    assert "Judge (advisory)" in html
+    assert "groq" in html and "openai/gpt-oss-120b" in html and "gpt-oss-120b-v1" in html
+    assert "v1" in html
+    assert "&lt;b&gt;fine&lt;/b&gt; &amp; clear" in html
+    assert "<b>fine</b>" not in html
+    assert "off_script, language_mismatch" in html
+    assert "n/a" in html  # interruption_handling is null
+    assert "Cached</th><td>yes" in html
+
+
+def test_html_omits_judge_section_when_none():
+    assert "Judge (advisory)" not in render_html(make_report())
+
+
+def test_html_judge_error_shows_reason():
+    judge = JudgeReport(status="judge_error", prompt_version="v1", reason="groq: HTTP 500 <x>")
+    html = render_html(make_report().model_copy(update={"judge": judge}))
+    assert "judge_error" in html
+    assert "groq: HTTP 500 &lt;x&gt;" in html
+
+
+def test_old_report_without_judge_loads(tmp_path: Path):
+    data = json.loads(make_report().model_dump_json())
+    del data["scenario_goal"]
+    data["judge"] = None
+    path = tmp_path / "dir with space" / "report.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(data), encoding="utf-8")
+    loaded = load_report(path)
+    assert loaded.judge is None
+    assert loaded.scenario_goal is None
+
+
+def test_build_report_fills_scenario_goal():
+    scenario = Scenario(
+        schema_version=1,
+        id="s",
+        title="t",
+        language="en",
+        domain="clinic",
+        clock=datetime(2026, 11, 19, 10, 0, tzinfo=IST),
+        caller=CallerVoice(voice="v"),
+        turns=[Turn(say="one two")],
+        goal="Book a slot",
+    )
+    jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+    result = CallResult("completed", Path("."), 0, jitter, False, 0.0, {}, [])
+    built = build_report(scenario, result, [], run_id="r", agent_url="ws://h", preset="clean")
+    assert built.scenario_goal == "Book a slot"

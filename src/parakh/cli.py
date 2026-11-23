@@ -1,7 +1,6 @@
 """Command-line entry point for Parakh."""
 
 import asyncio
-import os
 import wave
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +11,7 @@ import numpy as np
 import typer
 from edge_tts.exceptions import EdgeTTSException
 
-from parakh import __version__
+from parakh import __version__, cli_report, env
 from parakh.audio import (
     SAMPLE_RATE,
     SUPPORTED_RATES,
@@ -27,6 +26,7 @@ from parakh.budget.estimate import (
     LLM_TOKENS_PER_REQUEST,
     estimate,
 )
+from parakh.cli_util import describe, fail, judge_detail
 from parakh.console import configure_console
 from parakh.degrade.chain import degrade as degrade_clip
 from parakh.degrade.filters import peak_normalise
@@ -34,9 +34,9 @@ from parakh.degrade.noise import DegradeError, noise_scale, noise_slice
 from parakh.degrade.presets import expand_presets, get_preset
 from parakh.degrade.seeds import part_rng
 from parakh.degrade.track import noise_track
-from parakh.report.compare import build_comparison, write_comparison
-from parakh.report.html import write_report_html
-from parakh.report.model import Report, load_report
+from parakh.judge.providers import load_config
+from parakh.judge.runner import JudgeRunner
+from parakh.report.model import Report
 from parakh.run import exit_code, run_batch
 from parakh.scenario import ScenarioError, load_scenario
 from parakh.transport.ws import redact_url
@@ -53,6 +53,7 @@ app.add_typer(tts_app, name="tts")
 def main() -> None:
     """Parakh command-line interface."""
     configure_console()
+    env.load_env()
 
 
 @app.command()
@@ -64,6 +65,12 @@ def version() -> None:
 def make_engine() -> TTSEngine:
     """Create the caller TTS engine. Tests monkeypatch this."""
     return EdgeTTSEngine()
+
+
+def make_judge() -> JudgeRunner:
+    """Create the judge from judge.yaml and the keys in the environment. Tests patch this."""
+    config = load_config()
+    return JudgeRunner(config, env.judge_keys(config))
 
 
 def _scenario_files(paths: list[Path]) -> list[Path]:
@@ -96,22 +103,12 @@ def tts_build(
     try:
         total, built = asyncio.run(run())
     except (FfmpegMissing, ScenarioError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     # ValueError: edge-tts rejects a malformed rate or pitch. RuntimeError: ffmpeg
     # could not decode the synthesised audio.
     except (OSError, EdgeTTSException, aiohttp.ClientError, ValueError, RuntimeError) as exc:
-        raise _fail(f"tts build failed: {_describe(exc)}") from exc
+        raise fail(f"tts build failed: {describe(exc)}") from exc
     typer.echo(f"{total} clips ({built} built, {total - built} cached)")
-
-
-def _fail(message: str) -> typer.Exit:
-    typer.echo(message, err=True)
-    return typer.Exit(2)
-
-
-def _describe(exc: Exception) -> str:
-    """Exception type and message on one line (ffmpeg errors span several)."""
-    return f"{type(exc).__name__}: {' '.join(str(exc).split())}"
 
 
 def _endpoint(url: str) -> str:
@@ -153,6 +150,8 @@ def _echo_summary(result: Report, agent: str, *, batched: bool) -> None:
     typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
     if result.timing_unreliable:
         typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
+    if result.judge is not None:
+        typer.echo(f"judge: {judge_detail(result.judge)}")
 
 
 @app.command()
@@ -170,10 +169,14 @@ def run(
         Path | None,
         typer.Option(help="Batch directory to resume: skip pairs that already completed."),
     ] = None,
+    judge: Annotated[
+        bool, typer.Option("--judge/--no-judge", help="Rate each run with the advisory judge.")
+    ] = True,
 ) -> None:
     """Run scenarios against an agent and write report.json and report.html per run.
 
-    More than one run (several scenarios or presets) also writes compare.html.
+    More than one run (several scenarios or presets) also writes compare.html. The judge
+    is advisory: it never changes a run's status or the exit code.
     """
     batch_dirs: list[Path] = []
 
@@ -200,6 +203,7 @@ def run(
                 on_warning=lambda message: typer.echo(message, err=True),
                 resume=resume,
                 on_skip=lambda sid, name: typer.echo(f"skipped (completed): {sid} / {name}"),
+                judge=make_judge() if judge else None,
             )
         )
     except KeyboardInterrupt:
@@ -209,44 +213,14 @@ def run(
         raise typer.Exit(2) from None
     except (ValueError, ScenarioError, FfmpegMissing) as exc:
         _echo_comparison(batch_dirs)
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     # RuntimeError: ffmpeg could not decode the synthesised caller audio.
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
         _echo_comparison(batch_dirs)
-        raise _fail(f"run failed: {_describe(exc)}") from exc
+        raise fail(f"run failed: {describe(exc)}") from exc
     if batch_dir is not None and (batch_dir / "compare.html").is_file():
         typer.echo(f"comparison: {batch_dir / 'compare.html'}")
     raise typer.Exit(max((exit_code(result) for result, _ in results), default=0))
-
-
-def _default_compare_dir(run_dirs: list[Path]) -> Path:
-    """Common parent of the run directories; one level up when it is itself a run."""
-    resolved = [d.resolve() for d in run_dirs]
-    try:
-        common = Path(os.path.commonpath(resolved))
-    except ValueError as exc:
-        raise _fail("run directories are on different drives; pass --out") from exc
-    return common.parent if common in resolved else common
-
-
-@app.command()
-def compare(
-    run_dirs: Annotated[list[Path], typer.Argument(help="Run directories with report.json.")],
-    out: Annotated[
-        Path | None,
-        typer.Option(help="Where compare.html goes (default: the common parent of the runs)."),
-    ] = None,
-) -> None:
-    """Build compare.html and compare.json from existing run directories."""
-    runs: list[tuple[Report, Path]] = []
-    for run_dir in run_dirs:
-        try:
-            runs.append((load_report(run_dir / "report.json"), run_dir))
-        # ValueError covers non-UTF-8 text and pydantic's ValidationError.
-        except (OSError, ValueError) as exc:
-            raise _fail(f"cannot read report.json in {run_dir}: {exc}") from exc
-    target = out if out is not None else _default_compare_dir(run_dirs)
-    typer.echo(str(write_comparison(build_comparison(runs, target), target)))
 
 
 @app.command("degrade")
@@ -285,29 +259,15 @@ def degrade_command(
         target = out if out is not None else clip.with_name(f"{clip.stem}.{preset}.wav")
         write_wav(target, result.pcm, rate)
     except (ValueError, FfmpegMissing, wave.Error, DegradeError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     except (OSError, EdgeTTSException, aiohttp.ClientError, RuntimeError) as exc:
-        raise _fail(f"degrade failed: {_describe(exc)}") from exc
+        raise fail(f"degrade failed: {describe(exc)}") from exc
     stats = result.stats
     snr = "n/a" if stats is None or stats.snr_db is None else f"{stats.snr_db:.1f} dB"
     lost, frames = (0, len(result.lost)) if stats is None else (stats.lost_frames, stats.frames)
     clipped = 0 if stats is None else stats.clipped_samples
     typer.echo(f"wrote {target}")
     typer.echo(f"snr {snr}, lost frames {lost}/{frames}, clipped samples {clipped}")
-
-
-@app.command()
-def report(
-    run_dir: Annotated[Path, typer.Argument(help="Run directory with report.json.")],
-) -> None:
-    """Re-render report.html from report.json."""
-    try:
-        loaded = load_report(run_dir / "report.json")
-    # ValueError covers a file that is not UTF-8 (UnicodeDecodeError) and pydantic's
-    # ValidationError for JSON that is not a valid report.
-    except (OSError, ValueError) as exc:
-        raise _fail(f"cannot read report.json in {run_dir}: {exc}") from exc
-    typer.echo(str(write_report_html(loaded, run_dir)))
 
 
 @app.command()
@@ -323,7 +283,7 @@ def budget(
         presets = expand_presets(preset or ["clean"])
         scenarios = [load_scenario(file) for file in _scenario_files(paths)]
     except (ScenarioError, ValueError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     est = estimate(scenarios, presets=len(presets))
     typer.echo(f"scenarios: {est.scenarios}")
     typer.echo(f"presets: {len(presets)}")
@@ -340,3 +300,6 @@ def budget(
     for note in est.notes:
         typer.echo(note)
     raise typer.Exit(2)
+
+
+cli_report.register(app)

@@ -56,3 +56,10 @@ def test_estimate_notes_tokens_and_judge_limits():
     assert not any("judge" in note for note in est.notes)
     est = estimate([scenario] * 1001)
     assert any("judge" in note for note in est.notes)
+
+
+def test_judge_limit_comes_from_the_config():
+    from parakh.budget.estimate import judge_rpd
+    from parakh.judge.providers import load_config
+
+    assert judge_rpd() == load_config().providers[0].rpd

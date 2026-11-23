@@ -67,6 +67,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> i
 
     try:
         key = _read_key(args.env, "GROQ_API_KEY")
+        gemini = _read_key(args.env, "GEMINI_API_KEY")
     except EnvFileError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -87,6 +88,8 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> i
         return 1
     has_whisper = "yes" if WHISPER_MODEL in result.models else "no"
     print(f"groq: ok ({len(result.models)} models; {WHISPER_MODEL}: {has_whisper})")
+    # Only whether it is set, never the value. The judge falls back to it, so it is optional.
+    print(f"gemini: {'set' if gemini else 'not set (optional)'}")
     return 0
 
 

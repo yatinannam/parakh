@@ -49,6 +49,7 @@ a { color: var(--bar); }
 <tr><th>Stop latency p50</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.stop_p50_ms | ms }}</a></td>{% endfor %}</tr>
 <tr><th>Did not yield</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.did_not_yield }}</a></td>{% endfor %}</tr>
 <tr><th>False barge-ins</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.false_barge_ins }}</a></td>{% endfor %}</tr>
+<tr><th>Judge mean (advisory)</th>{% for r in g.rows %}<td><a href="{{ r.report_href }}">{{ r.judge_mean | score }}</a></td>{% endfor %}</tr>
 </table>
 <div class="charts">
 {% for title, chart in (("Loose WER by preset", g.wer_chart), ("Latency p50 by preset", g.latency_chart)) %}

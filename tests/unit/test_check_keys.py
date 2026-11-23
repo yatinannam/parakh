@@ -53,7 +53,9 @@ def test_success_message_and_exit_0(tmp_path, capsys, monkeypatch):
     env.write_text(f"GROQ_API_KEY={KEY}\n", encoding="utf-8")
     body = {"data": [{"id": "whisper-large-v3-turbo"}, {"id": "llama"}]}
     assert main(["--env", str(env)], client=client(200, body)) == 0
-    assert capsys.readouterr().out.strip() == "groq: ok (2 models; whisper-large-v3-turbo: yes)"
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "groq: ok (2 models; whisper-large-v3-turbo: yes)"
+    )
 
 
 def test_key_never_printed(tmp_path, capsys, monkeypatch):
@@ -107,3 +109,22 @@ def test_utf16_env_file_exit_2(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr()
     assert "UTF-8" in out.err
     assert KEY not in out.out + out.err
+
+
+def test_gemini_key_optional(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    env = tmp_path / "dir with space" / ".env"
+    env.parent.mkdir()
+    env.write_text(f"GROQ_API_KEY={KEY}\n", encoding="utf-8")
+    body = {"data": [{"id": "whisper-large-v3-turbo"}]}
+    assert main(["--env", str(env)], client=client(200, body)) == 0
+    out = capsys.readouterr().out
+    assert "groq: ok" in out
+    assert "gemini: not set (optional)" in out
+    gem = "gem-not-a-real-key"
+    env.write_text(f"GROQ_API_KEY={KEY}\nGEMINI_API_KEY={gem}\n", encoding="utf-8")
+    assert main(["--env", str(env)], client=client(200, body)) == 0
+    out = capsys.readouterr()
+    assert "gemini: set" in out.out
+    assert gem not in out.out + out.err

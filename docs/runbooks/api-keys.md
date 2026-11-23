@@ -23,9 +23,18 @@ Used by the test agent (Whisper STT and chat LLM) and by the LLM judge.
 
 Free-tier limits are per organisation, not per key. A second key does not add quota. See `docs/research/2026-11-15-free-tier-and-platform-notes.md`.
 
-## Gemini (M3)
+## Gemini (judge fallback, optional)
 
-Judge fallback only. The free tier may use inputs for training and human review, so it receives synthetic transcripts only. Set-up steps are added in M3.
+The judge asks Groq first and falls back to Gemini. The key is optional: without it the judge runs on Groq alone, and with neither key a run's judge is `skipped`.
+
+1. Open Google AI Studio (aistudio.google.com) and sign in with a Google account.
+2. Create an API key. Check that no card is asked for at any step (EC-17); if one is, stop and do not continue.
+3. Put the key in `.env` as `GEMINI_API_KEY=...`. `.env` stays out of git.
+4. Check it with `uv run python -m tools.check_keys`. It prints `gemini: set` or `gemini: not set (optional)` and never the value.
+
+The free tier may use inputs for training and human review, so the judge sends synthetic transcripts only.
+
+`rpd: 20` in `src/parakh/judge/judge.yaml` is conservative. Check AI Studio for the project's real limit and raise it there if it is higher.
 
 ## OpenRouter (Task 1 only)
 

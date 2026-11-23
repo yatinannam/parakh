@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from parakh.judge.providers import load_config
 from parakh.scenario import Scenario
 
 GROQ_STT_LIMITS = {"rpm": 20, "rpd": 2000, "audio_s_per_hour": 7200}
@@ -9,12 +10,15 @@ GROQ_STT_LIMITS = {"rpm": 20, "rpd": 2000, "audio_s_per_hour": 7200}
 GROQ_LLM_ASSUMED = {"rpm": 30, "rpd": 1000, "tpd": 200_000}
 # Assumed until Task 9 measures the mean tokens per agent LLM request.
 LLM_TOKENS_PER_REQUEST = 1500
-# Judge model rpd until Task 7 adds judge.yaml: Groq free tier, openai/gpt-oss-120b.
-JUDGE_RPD_ASSUMED = 1000
 _SECONDS_PER_WORD = 0.4
 # Observed per caller turn in the M1 runs (the agent's VAD can split one turn into several).
 STT_PER_TURN = 3
 LLM_PER_TURN = 3
+
+
+def judge_rpd() -> int:
+    """Daily request limit of the first judge provider, from judge.yaml."""
+    return load_config().providers[0].rpd
 
 
 @dataclass
@@ -62,8 +66,8 @@ def estimate(
         notes.append(f"rpd: {llm} LLM calls > {GROQ_LLM_ASSUMED['rpd']} (assumed limit)")
     if tokens > GROQ_LLM_ASSUMED["tpd"]:
         notes.append(f"tpd: {tokens} LLM tokens > {GROQ_LLM_ASSUMED['tpd']} (assumed limit)")
-    if judge_calls > JUDGE_RPD_ASSUMED:
-        notes.append(f"rpd: {judge_calls} judge calls > {JUDGE_RPD_ASSUMED} (assumed limit)")
+    if judge_calls > judge_rpd():
+        notes.append(f"rpd: {judge_calls} judge calls > {judge_rpd()} (judge.yaml limit)")
     if audio > GROQ_STT_LIMITS["audio_s_per_hour"]:
         limit = GROQ_STT_LIMITS["audio_s_per_hour"]
         notes.append(f"audio_s_per_hour: {audio:.0f} s of audio > {limit}")

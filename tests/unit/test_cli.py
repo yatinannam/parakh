@@ -1,3 +1,5 @@
+import json
+import os
 import shutil
 import subprocess
 import sys
@@ -5,15 +7,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from typer.testing import CliRunner, Result
 
-from parakh import __version__, cli
+from parakh import __version__, cli, cli_report, env
 from parakh import run as run_module
+from parakh.caller.driver import CallResult
+from parakh.caller.pacer import JitterStats
 from parakh.cli import app
 from parakh.degrade.presets import PRESET_ORDER
+from parakh.judge.providers import load_config
+from parakh.judge.runner import JudgeRunner
 from parakh.report.model import write_report_json
 from tests.fakes import FakeEngine, make_report
+from tests.unit.judge.helpers import report as judge_report
+from tests.unit.judge.helpers import turn as judge_turn
+from tests.unit.judge.test_runner import Fake, groq_ok
 
 
 def test_version_prints_package_version():
@@ -489,7 +499,7 @@ def test_compare_different_drives_exits_2(tmp_path: Path, monkeypatch: pytest.Mo
     def other_drive(*_a: object, **_k: object) -> str:
         raise ValueError("Paths don't have the same drive")
 
-    monkeypatch.setattr(cli.os.path, "commonpath", other_drive)
+    monkeypatch.setattr(cli_report.os.path, "commonpath", other_drive)
     result = CliRunner().invoke(app, ["compare", str(first), str(second)])
     _assert_clean_exit_2(result)
     assert "different drives; pass --out" in result.output
@@ -635,3 +645,168 @@ def test_resume_non_batch_dir_exits_2(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, [*_run_args(tmp_path), "--resume", str(empty)])
     _assert_clean_exit_2(result)
     assert "not a batch directory" in result.output
+
+
+# --- judge wiring -------------------------------------------------------------------------
+
+
+def _judge_runner(
+    tmp_path: Path,
+    handler: Callable[[httpx.Request], httpx.Response],
+    keys: dict[str, str] | None = None,
+) -> JudgeRunner:
+    async def no_sleep(_s: float) -> None:
+        return None
+
+    return JudgeRunner(
+        load_config(),
+        {"GROQ_API_KEY": "not-a-real-key"} if keys is None else keys,
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=httpx.MockTransport(handler),
+        sleep=no_sleep,
+    )
+
+
+def _judgeable_run(base: Path, run_id: str = "aaaa1111") -> Path:
+    run_dir = base / run_id
+    run_dir.mkdir(parents=True)
+    write_report_json(judge_report(judge_turn(1)), run_dir / "report.json")
+    return run_dir
+
+
+def _read_json(run_dir: Path) -> dict[str, Any]:
+    return json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+
+
+async def _unreachable_call(run_dir: Path) -> CallResult:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "events.jsonl").write_text('{"kind": "call_start", "t_ms": 0.0}\n', encoding="utf-8")
+    jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+    return CallResult("agent_unreachable", run_dir, 0, jitter, False, 0.0, {}, [])
+
+
+def _patch_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_call(_u: str, _s: Any, _l: Any, run_dir: Path, **_k: Any) -> CallResult:
+        return await _unreachable_call(run_dir)
+
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(run_module, "run_call", fake_call)
+
+
+def test_run_judges_by_default_and_no_judge_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    got: list[Any] = []
+
+    async def fake(_p: Path, _u: str, *, runs_dir: Path, judge: Any = None, **_k: Any):
+        got.append(judge)
+        run_dir = runs_dir / "r1"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        report = make_report(run_id="r1")
+        write_report_json(report, run_dir / "report.json")
+        return report, run_dir
+
+    marker = _judge_runner(tmp_path, lambda r: httpx.Response(500))
+    monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
+    monkeypatch.setattr(cli, "make_judge", lambda: marker)
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    assert CliRunner().invoke(app, _run_args(tmp_path)).exit_code == 0
+    assert CliRunner().invoke(app, [*_run_args(tmp_path), "--no-judge"]).exit_code == 0
+    assert got == [marker, None]
+
+
+def test_no_judge_flag_leaves_judge_null(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_unreachable(monkeypatch)
+    result = CliRunner().invoke(app, [*_run_args(tmp_path), "--no-judge"])
+    assert result.exit_code == 2, result.output
+    assert "judge:" not in result.output
+    (run_dir,) = list((tmp_path / "dir with space" / "r").iterdir())
+    assert _read_json(run_dir)["judge"] is None
+
+
+def test_run_summary_shows_judge_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_unreachable(monkeypatch)
+    monkeypatch.setattr(cli, "make_judge", lambda: _judge_runner(tmp_path, lambda r: groq_ok()))
+    result = CliRunner().invoke(app, _run_args(tmp_path))
+    assert result.exit_code == 2, result.output
+    assert "judge: skipped (nothing to judge)" in result.output
+
+
+def test_judge_command_rewrites_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = tmp_path / "dir with space" / "runs"
+    first, second = _judgeable_run(base, "aaaa1111"), _judgeable_run(base, "bbbb2222")
+    fake = Fake(lambda r: groq_ok())
+    monkeypatch.setattr(cli, "make_judge", lambda: _judge_runner(tmp_path, fake._run))
+    result = CliRunner().invoke(app, ["judge", str(first), str(second)])
+    assert result.exit_code == 0, result.output
+    assert f"{first}: ok, mean 4.5 (groq openai/gpt-oss-120b)" in result.output
+    for run_dir in (first, second):
+        assert _read_json(run_dir)["judge"]["status"] == "ok"
+        assert "Judge (advisory)" in (run_dir / "report.html").read_text(encoding="utf-8")
+    # one shared runner: the second run has the same payload, so the cache answers it
+    assert len(fake.requests) == 1
+
+
+def test_judge_command_exits_2_on_judge_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = _judgeable_run(tmp_path / "dir with space" / "runs")
+    runner = _judge_runner(tmp_path, lambda r: httpx.Response(500))
+    monkeypatch.setattr(cli, "make_judge", lambda: runner)
+    result = CliRunner().invoke(app, ["judge", str(run_dir)])
+    assert result.exit_code == 2, result.output
+    assert f"{run_dir}: judge_error" in result.output
+    assert _read_json(run_dir)["judge"]["status"] == "judge_error"
+    assert _read_json(run_dir)["status"] == "completed"
+
+
+def test_judge_command_skipped_without_key_exits_0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = _judgeable_run(tmp_path / "dir with space" / "runs")
+    runner = _judge_runner(tmp_path, lambda r: groq_ok(), {})
+    monkeypatch.setattr(cli, "make_judge", lambda: runner)
+    result = CliRunner().invoke(app, ["judge", str(run_dir)])
+    assert result.exit_code == 0, result.output
+    assert "skipped (no judge API key" in result.output
+
+
+def test_judge_command_unreadable_report_exits_2(tmp_path: Path) -> None:
+    bad = tmp_path / "dir with space" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "report.json").write_text("{not json", encoding="utf-8")
+    result = CliRunner().invoke(app, ["judge", str(bad)])
+    _assert_clean_exit_2(result)
+    assert "cannot read report.json" in result.output
+
+
+def test_cli_never_prints_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    key = "not-a-real-key"
+    monkeypatch.setenv("GROQ_API_KEY", key)
+    run_dir = _judgeable_run(tmp_path / "dir with space" / "runs")
+
+    def echoing(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text=f"Invalid API key: {key}")
+
+    runner = _judge_runner(tmp_path, echoing, env.judge_keys(load_config()))
+    monkeypatch.setattr(cli, "make_judge", lambda: runner)
+    result = CliRunner().invoke(app, ["judge", str(run_dir)])
+    assert result.exit_code == 2, result.output
+    assert key not in result.output
+    assert key not in result.stdout
+    assert key not in result.stderr
+    assert key not in (run_dir / "report.json").read_text(encoding="utf-8")
+    assert key not in (run_dir / "report.html").read_text(encoding="utf-8")
+
+
+def test_tests_never_see_real_keys() -> None:
+    assert "GROQ_API_KEY" not in os.environ
+    assert "GEMINI_API_KEY" not in os.environ
+
+
+def test_main_loads_env_through_module_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(env, "load_env", lambda: calls.append(1))
+    assert CliRunner().invoke(app, ["version"]).exit_code == 0
+    assert calls == [1]

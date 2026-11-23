@@ -219,6 +219,7 @@ def build_report(
             agent_llm_requests=llm_requests,
         ),
         warnings=result.warnings,
+        scenario_goal=scenario.goal,
     )
 
 
@@ -322,4 +323,5 @@ def fallback_report(
             wer_reason=None,
         ),
         warnings=warnings,
+        scenario_goal=scenario.goal,
     )

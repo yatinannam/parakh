@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from parakh.judge.model import JudgeScores
 from parakh.report.compare import Comparison, _report_href, build_comparison, write_comparison
-from parakh.report.model import Report, TurnReport
+from parakh.report.model import JudgeReport, Report, TurnReport
 from tests.fakes import make_report
 
 
@@ -149,3 +150,38 @@ def test_href_across_drives_falls_back_to_uri(tmp_path: Path, monkeypatch: pytes
     href = _report_href(tmp_path / "dir with space" / "r1", tmp_path)
     assert href.startswith("file:")
     assert href.endswith("report.html")
+
+
+def _with_judge(report: Report, status: str, **scores: int | None) -> Report:
+    base = {
+        "understanding": 4,
+        "language_match": 5,
+        "task_progress": 4,
+        "politeness": 5,
+        "interruption_handling": None,
+        "rationale": "ok",
+        "flags": [],
+    }
+    judge = JudgeReport(
+        status=status,  # type: ignore[arg-type]
+        prompt_version="v1",
+        scores=JudgeScores.model_validate({**base, **scores}) if status == "ok" else None,
+    )
+    return report.model_copy(update={"judge": judge})
+
+
+def test_judge_mean_row(tmp_path: Path):
+    out = _out(tmp_path)
+    runs = [
+        (_with_judge(make_report(preset="clean"), "ok"), out / "r1"),
+        (_with_judge(make_report(preset="phone"), "ok", interruption_handling=3), out / "r2"),
+        (_with_judge(make_report(preset="bad_line"), "judge_error"), out / "r3"),
+        (make_report(preset="noisy"), out / "r4"),
+    ]
+    comparison = build_comparison(runs, out)
+    means = {r.preset: r.judge_mean for r in comparison.rows}
+    assert means == {"clean": 4.5, "phone": 4.2, "bad_line": None, "noisy": None}
+    html = write_comparison(comparison, out).read_text(encoding="utf-8")
+    assert "Judge mean (advisory)" in html
+    assert "4.5" in html and "4.2" in html
+    assert (out / "compare.json").read_text(encoding="utf-8").count("judge_mean") == 4

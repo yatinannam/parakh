@@ -3,17 +3,27 @@ import math
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+import httpx
 import pytest
 
 from parakh import run as run_module
-from parakh.caller.driver import CallResult
+from parakh.caller.driver import CallResult, CallStatus
 from parakh.caller.pacer import JitterStats
+from parakh.judge.providers import load_config
+from parakh.judge.runner import JudgeRunner
 from parakh.report import build as build_module
 from parakh.report.build import _git_sha, build_report
 from parakh.report.metrics import ttfb_ms as _ttfb_ms
-from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report, write_report_json
+from parakh.report.model import (
+    JitterModel,
+    JudgeReport,
+    LatencyStatsModel,
+    Metrics,
+    Report,
+    write_report_json,
+)
 from parakh.run import exit_code, run_batch, run_scenario
 from parakh.scenario import Scenario, ScenarioError
 from parakh.score.wer import NO_TRANSCRIPT_REASON
@@ -781,3 +791,148 @@ async def test_resume_rejects_non_batch_dir(tmp_path: Path, monkeypatch: pytest.
                 resume=target,
             )
     assert calls == []
+
+
+# --- judge wiring -------------------------------------------------------------------------
+
+
+class _FakeJudge:
+    def __init__(self, result: JudgeReport | BaseException) -> None:
+        self.result = result
+        self.calls = 0
+
+    async def judge(self, _report: Report, *, force: bool = False) -> JudgeReport:
+        self.calls += 1
+        if isinstance(self.result, BaseException):
+            raise self.result
+        return self.result
+
+
+def _call_result(status: str, run_dir: Path) -> CallResult:
+    jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+    return CallResult(cast(CallStatus, status), run_dir, 0, jitter, False, 0.0, {}, [])
+
+
+def _patch_call(monkeypatch: pytest.MonkeyPatch, status: str) -> None:
+    async def fake_run_call(_url: str, _scn: Scenario, _clips: Any, run_dir: Path, **_k: Any):
+        _write_events(run_dir, [{"kind": "call_start", "t_ms": 0.0}])
+        return _call_result(status, run_dir)
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+
+
+async def _run_with(tmp_path: Path, judge: _FakeJudge | JudgeRunner | None) -> tuple[Report, Path]:
+    scenario, runs, cache = _setup(tmp_path)
+    return await run_scenario(
+        scenario,
+        "ws://127.0.0.1:1",
+        runs_dir=runs,
+        engine=FakeEngine(),
+        cache_dir=cache,
+        judge=cast("JudgeRunner | None", judge),
+    )
+
+
+_OK = JudgeReport(status="ok", provider="groq", model="m", prompt_version="v1")
+
+
+async def test_judge_runs_after_scoring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_call(monkeypatch, "completed")
+    fake = _FakeJudge(_OK)
+    report, run_dir = await _run_with(tmp_path, fake)
+    assert fake.calls == 1
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["judge"]["status"] == "ok"
+    assert report.judge == _OK
+    assert "Judge (advisory)" in (run_dir / "report.html").read_text(encoding="utf-8")
+
+
+async def test_no_judge_leaves_judge_null(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_call(monkeypatch, "completed")
+    report, run_dir = await _run_with(tmp_path, None)
+    assert report.judge is None
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["judge"] is None
+    assert "Judge (advisory)" not in (run_dir / "report.html").read_text(encoding="utf-8")
+
+
+async def test_unreachable_run_is_not_judged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_call(monkeypatch, "agent_unreachable")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(500)
+
+    real = JudgeRunner(
+        load_config(),
+        {"GROQ_API_KEY": "not-a-real-key"},
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=httpx.MockTransport(handler),
+    )
+    report, run_dir = await _run_with(tmp_path, real)
+    assert report.status == "agent_unreachable"
+    assert report.judge is not None
+    assert report.judge.status == "skipped"
+    assert report.judge.reason == "nothing to judge"
+    assert seen == []
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["judge"]["reason"] == "nothing to judge"
+
+
+async def test_judge_error_keeps_status_and_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_call(monkeypatch, "completed")
+    bad = JudgeReport(status="judge_error", prompt_version="v1", reason="groq: HTTP 500")
+    report, _ = await _run_with(tmp_path, _FakeJudge(bad))
+    assert report.status == "completed"
+    assert report.judge is not None and report.judge.status == "judge_error"
+    assert exit_code(report) == 0
+
+
+async def test_judge_crash_is_contained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_call(monkeypatch, "completed")
+    report, run_dir = await _run_with(tmp_path, _FakeJudge(RuntimeError("boom")))
+    assert report.status == "completed"
+    assert exit_code(report) == 0
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["status"] == "completed"
+    assert data["judge"]["status"] == "judge_error"
+    assert data["judge"]["reason"] == "internal: RuntimeError"
+    assert data["judge"]["prompt_version"] == load_config().prompt_version
+
+
+async def test_interrupt_during_judge_still_writes_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _patch_call(monkeypatch, "completed")
+    with pytest.raises(KeyboardInterrupt):
+        await _run_with(tmp_path, _FakeJudge(KeyboardInterrupt()))
+    (run_dir,) = list((tmp_path / "dir with space" / "runs").iterdir())
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["status"] == "completed"
+    assert data["judge"] is None
+
+
+async def test_run_batch_passes_judge_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    scenario, runs, cache = _setup(tmp_path)
+    seen: list[Any] = []
+
+    async def fake(_p: Path, _u: str, *, runs_dir: Path, judge: Any = None, **_k: Any):
+        seen.append(judge)
+        report = make_report(run_id="r1")
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        return report, runs_dir / "r1"
+
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    marker = cast("JudgeRunner", object())
+    await run_batch(
+        [scenario],
+        "ws://127.0.0.1:1",
+        ["clean"],
+        runs_dir=runs,
+        engine=FakeEngine(),
+        cache_dir=cache,
+        judge=marker,
+    )
+    assert seen == [marker]

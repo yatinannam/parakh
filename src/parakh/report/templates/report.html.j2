@@ -71,6 +71,33 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 <tr><th>Peak CPU</th><td>{{ "%.0f"|format(r.cpu_max_percent) }}%</td></tr>
 </table>
 
+{% if r.judge %}
+{% set j = r.judge %}
+<h2>Judge (advisory)</h2>
+<p class="muted">An LLM's opinion on synthetic transcripts. It never changes the run status or the exit code.</p>
+<table>
+<tr><th>Status</th><td>{{ j.status }}</td></tr>
+{% if j.provider %}
+<tr><th>Provider / model</th><td>{{ j.provider }} / {{ j.model or "n/a" }}</td></tr>
+<tr><th>Model version</th><td>{{ j.model_version or "n/a" }}</td></tr>
+{% endif %}
+<tr><th>Prompt version</th><td>{{ j.prompt_version }}</td></tr>
+{% if j.scores %}
+{% for label, field in (("Understanding", "understanding"), ("Language match", "language_match"), ("Interruption handling", "interruption_handling"), ("Task progress", "task_progress"), ("Politeness", "politeness")) %}
+<tr><th>{{ label }}</th><td>{{ j.scores[field] if j.scores[field] is not none else "n/a" }}</td></tr>
+{% endfor %}
+<tr><th>Mean</th><td>{{ j.mean | score }}</td></tr>
+<tr><th>Rationale</th><td>{{ j.scores.rationale }}</td></tr>
+<tr><th>Flags</th><td>{{ j.scores.flags | join(", ") if j.scores.flags else "none" }}</td></tr>
+{% endif %}
+<tr><th>Cached</th><td>{{ "yes" if j.cached else "no" }}</td></tr>
+<tr><th>Requests sent</th><td>{{ j.attempts }}</td></tr>
+{% if j.reason %}
+<tr><th>Reason</th><td>{{ j.reason }}</td></tr>
+{% endif %}
+</table>
+{% endif %}
+
 <h2>Agent</h2>
 <table>
 <tr><th>URL</th><td>{{ r.agent_url }}</td></tr>

@@ -12,6 +12,8 @@ from parakh.caller.line import CallerLine, build_line
 from parakh.caller.recorder import read_events
 from parakh.degrade import get_preset
 from parakh.degrade.track import noise_track
+from parakh.judge.providers import load_config
+from parakh.judge.runner import JudgeRunner
 from parakh.report.build import (
     build_report,
     fallback_report,
@@ -19,7 +21,7 @@ from parakh.report.build import (
 )
 from parakh.report.compare import build_comparison, write_comparison
 from parakh.report.html import write_report_html
-from parakh.report.model import Report, load_report, write_report_json
+from parakh.report.model import JudgeReport, Report, load_report, write_report_json
 from parakh.scenario import Scenario, load_scenario
 from parakh.transport.codec import ProtocolError
 from parakh.transport.ws import check_agent_url, redact_url
@@ -52,6 +54,7 @@ async def run_scenario(
     engine: TTSEngine | None = None,
     cache_dir: Path = DEFAULT_CACHE_ROOT,
     on_start: Callable[[Path], None] | None = None,
+    judge: JudgeRunner | None = None,
 ) -> tuple[Report, Path]:
     """Run one scenario against an agent; always write report.json and report.html.
 
@@ -61,6 +64,9 @@ async def run_scenario(
     on_start is called once with the run directory just before the call starts.
     On Ctrl+C a partial report is written (status "interrupted") and the interrupt
     is re-raised.
+    judge, when given, rates every report (a fallback one is skipped by the judge itself)
+    before it is written. It is advisory: a crash in it becomes judge_error and never
+    changes the run's status.
     """
     get_preset(preset)  # ValueError for an unknown preset
     if agent_rate not in SUPPORTED_RATES:
@@ -100,8 +106,26 @@ async def run_scenario(
         message = str(exc).replace(agent_url, redact_url(agent_url))
         warning = f"{type(exc).__name__}: {message}"
         report = fallback_report(scenario, run_id, agent_url, preset, status, [warning])
+    if judge is not None:
+        try:
+            report = report.model_copy(update={"judge": await _judged(report, judge)})
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            _write(report, run_dir)
+            raise
     _write(report, run_dir)
     return report, run_dir
+
+
+async def _judged(report: Report, judge: JudgeRunner) -> JudgeReport:
+    """The judge's verdict; any unexpected exception becomes judge_error (never a crash)."""
+    try:
+        return await judge.judge(report)
+    except Exception as exc:
+        return JudgeReport(
+            status="judge_error",
+            prompt_version=load_config().prompt_version,
+            reason=f"internal: {type(exc).__name__}",
+        )
 
 
 def _write_interrupted(
@@ -174,6 +198,7 @@ async def run_batch(
     on_warning: Callable[[str], None] | None = None,
     resume: Path | None = None,
     on_skip: Callable[[str, str], None] | None = None,
+    judge: JudgeRunner | None = None,
 ) -> tuple[list[tuple[Report, Path]], Path | None]:
     """Run every scenario under every preset, back to back, in scenario then preset order.
 
@@ -194,7 +219,7 @@ async def run_batch(
     resume is an existing batch directory: it becomes the batch directory, and every pair
     whose newest report there is `completed` is skipped (on_skip gets its scenario id and
     preset; on_done is not called). Only the runs made in this call are returned. Raises
-    ValueError when resume holds no report.json.
+    ValueError when resume holds no report.json. judge goes to every run_scenario call.
     """
     if resume is not None and not any(resume.glob("*/report.json")):
         raise ValueError(f"not a batch directory: {resume}")
@@ -218,6 +243,7 @@ async def run_batch(
             engine=tts,
             cache_dir=cache_dir,
             on_start=on_start,
+            judge=judge,
         )
         if on_done is not None:
             on_done(*single)
@@ -258,6 +284,7 @@ async def run_batch(
                     engine=tts,
                     cache_dir=cache_dir,
                     on_start=on_start,
+                    judge=judge,
                 )
             )
             if on_done is not None:

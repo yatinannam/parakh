@@ -95,6 +95,11 @@ class JudgeReport(_Strict):
     tokens: int | None = None
     reason: str | None = None
 
+    @property
+    def mean(self) -> float | None:
+        """Mean of the non-null scores; None unless the judge returned scores."""
+        return None if self.status != "ok" or self.scores is None else self.scores.mean()
+
 
 class Report(_Strict):
     schema_version: Literal[1] = 1

@@ -40,6 +40,8 @@ class CompareRow(_Strict):
     # compare.json files written before these fields loadable.
     turns_reached: int = 0
     turns_total: int = 0
+    # Mean of the judge's non-null scores when its status is ok. Advisory only.
+    judge_mean: float | None = None
 
 
 class Comparison(_Strict):
@@ -85,6 +87,7 @@ def build_comparison(runs: list[tuple[Report, Path]], out_dir: Path) -> Comparis
                     t.latency_reason not in (TURN_NOT_REACHED, NO_DATA) for t in report.turns
                 ),
                 turns_total=len(report.turns),
+                judge_mean=None if report.judge is None else report.judge.mean,
             )
         )
     rows.sort(key=lambda r: (r.scenario_id, _preset_rank(r.preset)))
