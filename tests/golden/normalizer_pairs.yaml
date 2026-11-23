@@ -1,36 +1,265 @@
+# Golden pairs for the script-tolerant normaliser (spec 6.7).
+#
+# Each pair is [a, b, group]. test_must_match and test_must_not_match read a and b only;
+# test_golden_counts reads the group. Groups:
+#   hinglish  Hinglish words and phrases, Devanagari against Roman
+#   loanword  English words written in Devanagari (EC-42)
+#   variant   Roman spelling variants
+#   number    number words, digit groups and Devanagari numerals (EC-44)
+#   no_match  words that must stay distinct (EC-43 and near misses)
+#
+# Pairs marked "observed" come from how Groq Whisper (language hi) wrote the synthetic
+# caller in local clean and phone runs.
+#
+# A pair the normaliser gets wrong goes to known_gaps with its reason; each known gap is an
+# xfail(strict=True) test, so fixing one fails the suite until the pair moves up. Never
+# delete a pair.
+
 must_match:
-  - ["mujhe", "मुझे"]
-  - ["doctor", "डॉक्टर"]
-  - ["appointment", "अपॉइंटमेंट"]
-  - ["chahiye", "चाहिए"]
-  - ["kal subah", "कल सुबह"]
-  - ["haan", "हाँ"]
-  - ["nahin", "नहीं"]
-  - ["nahi", "nahin"]
-  - ["nai", "nahi"]
-  - ["main", "मैं"]
-  - ["mein", "में"]
-  - ["number", "नंबर"]
-  - ["saadhe das", "साढ़े दस"]
-  - ["possible", "पॉसिबल"]
-  - ["ke saath", "के साथ"]
-  - ["rao", "राव"]
-  - ["9845012345", "nine eight four five zero one two three four five"]
-  - ["98450 12345", "9845012345"]
-  - ["double five", "55"]
-  - ["twenty one", "21"]
-  - ["do", "2"]
-  - ["दो", "2"]
-  - ["kya", "क्या"]
-  - ["Hello,", "hello"]
-  - ["theek hai", "ठीक है।"]
-  - ["follow", "फॉलो"]
+  # --- hinglish ---
+  - ["mujhe", "मुझे", hinglish]
+  - ["chahiye", "चाहिए", hinglish]
+  - ["kal subah", "कल सुबह", hinglish]
+  - ["haan", "हाँ", hinglish]
+  - ["nahin", "नहीं", hinglish]
+  - ["main", "मैं", hinglish]
+  - ["mein", "में", hinglish]
+  - ["saadhe das", "साढ़े दस", hinglish]
+  - ["ke saath", "के साथ", hinglish]
+  - ["rao", "राव", hinglish]  # observed
+  - ["kya", "क्या", hinglish]
+  - ["theek hai", "ठीक है।", hinglish]
+  - ["subah", "सुबाह", hinglish]  # observed
+  - ["subah", "सुबा", hinglish]  # observed
+  - ["kal subah", "कल सुबा", hinglish]  # observed
+  - ["toh", "तो", hinglish]  # observed
+  - ["saadhe", "साधे", hinglish]  # observed
+  - ["das", "दास", hinglish]  # observed
+  - ["mera", "मेरा", hinglish]
+  - ["meri", "मेरी", hinglish]
+  - ["beti", "बेटी", hinglish]
+  - ["ke liye", "के लिए", hinglish]
+  - ["parso", "परसों", hinglish]
+  - ["shaam ko", "शाम को", hinglish]
+  - ["mil jayega", "मिल जाएगा", hinglish]
+  - ["ji", "जी", hinglish]
+  - ["sahi hai", "सही है", hinglish]
+  - ["shukriya", "शुक्रिया", hinglish]
+  - ["galat bola", "गलत बोला", hinglish]
+  - ["woh", "वो", hinglish]
+  - ["namaste", "नमस्ते", hinglish]
+  - ["dhanyavaad", "धन्यवाद", hinglish]
+  - ["bilkul", "बिल्कुल", hinglish]
+  - ["agar", "अगर", hinglish]
+  - ["ho", "हो", hinglish]
+  - ["dhaai baje", "ढाई बजे", hinglish]
+  - ["achha", "अच्छा", hinglish]
+  - ["phir", "फिर", hinglish]
+  - ["se", "से", hinglish]
+  - ["kaun", "कौन", hinglish]
+  - ["khaali", "खाली", hinglish]
+  - ["hain", "हैं", hinglish]
+  - ["wala", "वाला", hinglish]
+  - ["wahi", "वही", hinglish]
+  - ["rahega", "रहेगा", hinglish]
+  - ["ab", "अब", hinglish]
+  - ["ruko", "रुको", hinglish]
+  - ["zaroor", "ज़रूर", hinglish]
+  - ["chalega", "चलेगा", hinglish]
+  - ["baje", "बजे", hinglish]
+  - ["sharma", "शर्मा", hinglish]
+  - ["kal", "कल", hinglish]
+  - ["aaj", "आज", hinglish]
+  - ["aap", "आप", hinglish]
+  - ["haan ji", "हाँ जी", hinglish]
+  - ["nahi", "नहीं", hinglish]
+  - ["yeh", "ये", hinglish]
+  - ["yeh", "यह", hinglish]
+  - ["kitne baje", "कितने बजे", hinglish]
+  - ["bataiye", "बताइए", hinglish]
+  - ["abhi", "अभी", hinglish]
+  - ["kuch", "कुछ", hinglish]
+  - ["dopahar", "दोपहर", hinglish]
+  - ["samay", "समय", hinglish]
+  - ["jaldi", "जल्दी", hinglish]
+  - ["kaun se slots khaali hain", "कौन से स्लॉट्स खाली हैं", hinglish]
+  - ["hello mujhe doctor rao ke saath appointment chahiye", "हेलो मुझे डॉक्टर राव के साथ अपोइंट्मेंट चाहिए", hinglish]  # observed
+  - ["kal subah agar possible ho toh saadhe das baje", "कल सुबा अगर पॉसिबल हो तो साधे दास बजे.", hinglish]  # observed
+  - ["kal subah agar possible ho toh saadhe das baje", "कल सुबा अगर possible हो तो साधे 10 बजे", hinglish]  # observed
+  - ["haan mera number hai 9845012345", "हाँ, मेरा नमबर है 9845 012 345", hinglish]  # observed
+  - ["haan sahi hai thank you bye", "हाँ? सही है Thank you. बाइ", hinglish]  # observed
+  - ["theek hai thank you bye", "ठीक है, थैंक यू, बाइ", hinglish]  # observed
+  - ["sorry ek minute mujhe kal subah ka slot chahiye saadhe das baje", "सौरी एक मिनिट मुझे कल सुबाह का स्लोट चाहिए साधे दास बजे", hinglish]  # observed
+
+  # --- loanword ---
+  - ["doctor", "डॉक्टर", loanword]  # observed
+  - ["appointment", "अपॉइंटमेंट", loanword]
+  - ["appointment", "अपॉइंट्मेंट", loanword]  # observed
+  - ["appointment", "अपोइंट्मेंट", loanword]  # observed
+  - ["number", "नंबर", loanword]
+  - ["number", "नमबर", loanword]  # observed
+  - ["possible", "पॉसिबल", loanword]  # observed
+  - ["follow", "फॉलो", loanword]  # observed
+  - ["slot", "स्लॉट", loanword]
+  - ["slot", "स्लोट", loanword]  # observed
+  - ["time", "टाइम", loanword]
+  - ["phone", "फ़ोन", loanword]
+  - ["phone", "फोन", loanword]
+  - ["sorry", "सॉरी", loanword]
+  - ["sorry", "सौरी", loanword]  # observed
+  - ["please", "प्लीज़", loanword]
+  - ["thank you", "थैंक यू", loanword]  # observed
+  - ["thanks", "थैंक्स", loanword]
+  - ["okay", "ओके", loanword]
+  - ["ok", "ओके", loanword]
+  - ["bye", "बाइ", loanword]  # observed
+  - ["bye", "बाय", loanword]
+  - ["clinic", "क्लिनिक", loanword]
+  - ["morning", "मॉर्निंग", loanword]
+  - ["evening", "ईवनिंग", loanword]
+  - ["report", "रिपोर्ट", loanword]
+  - ["minute", "मिनिट", loanword]  # observed
+  - ["minute", "मिनट", loanword]
+  - ["confirm", "कन्फर्म", loanword]
+  - ["book", "बुक", loanword]
+  - ["available", "अवेलेबल", loanword]
+  - ["hello", "हेलो", loanword]  # observed
+  - ["hello", "हलो", loanword]  # observed
+  - ["hello", "हैलो", loanword]
+  - ["checkup", "चेकअप", loanword]
+  - ["check", "चेक", loanword]
+  - ["problem", "प्रॉब्लम", loanword]
+  - ["perfect", "परफेक्ट", loanword]
+  - ["november", "नवंबर", loanword]
+
+  # --- variant ---
+  - ["nahi", "nahin", variant]
+  - ["nai", "nahi", variant]
+  - ["Hello,", "hello", variant]
+  - ["kya", "kyaa", variant]
+  - ["theek", "thik", variant]
+  - ["accha", "acha", variant]
+  - ["accha", "achha", variant]
+  - ["achha", "acha", variant]
+  - ["accha", "achcha", variant]
+  - ["haan", "han", variant]
+  - ["mujhe", "mujhey", variant]
+  - ["chahiye", "chahie", variant]
+  - ["chahiye", "chaiye", variant]
+  - ["subah", "subha", variant]
+  - ["shaam", "sham", variant]
+  - ["saadhe", "sadhe", variant]
+  - ["saadhe", "saade", variant]
+  - ["dhanyavaad", "dhanyawad", variant]
+  - ["zaroor", "jaroor", variant]
+  - ["toh", "to", variant]
+  - ["woh", "vo", variant]
+  - ["woh", "wo", variant]
+  - ["yeh", "ye", variant]
+  - ["shukriya", "shukria", variant]
+  - ["phir", "fir", variant]
+  - ["okay", "ok", variant]
+  - ["parso", "parson", variant]
+
+  # --- number ---
+  - ["9845012345", "nine eight four five zero one two three four five", number]
+  - ["98450 12345", "9845012345", number]
+  - ["9845 012 345", "9845012345", number]  # observed
+  - ["double five", "55", number]
+  - ["twenty one", "21", number]
+  - ["do", "2", number]
+  - ["दो", "2", number]
+  - ["gyarah", "11", number]
+  - ["ग्यारह", "11", number]
+  - ["barah", "12", number]
+  - ["बारह", "12", number]
+  - ["bees", "20", number]
+  - ["bis", "बीस", number]
+  - ["pachees", "25", number]
+  - ["पच्चीस", "25", number]
+  - ["tees", "30", number]
+  - ["तीस", "30", number]
+  - ["chaalis", "40", number]
+  - ["चालीस", "40", number]
+  - ["pachaas", "50", number]
+  - ["पचास", "50", number]
+  - ["unnees", "उन्नीस", number]
+  - ["assi", "अस्सी", number]
+  - ["nabbe", "90", number]
+  - ["teen", "तीन", number]
+  - ["tiin", "3", number]
+  - ["chhe", "छह", number]
+  - ["sau", "100", number]
+  - ["do sau pachaas", "250", number]
+  - ["दो सौ पचास", "two hundred fifty", number]
+  - ["ek sau ek", "101", number]
+  - ["saadhe gyarah baje", "साढ़े 11 बजे", number]
+  - ["triple zero", "000", number]
+  - ["डबल पाँच", "55", number]
+  - ["nine eight double four triple zero one two three", "9844000123", number]
+  - ["९८४५०१२३४५", "9845012345", number]
+  - ["९", "nine", number]
+  - ["nau aath saat chhe paanch chaar teen do ek shunya", "9876543210", number]
+  - ["नौ आठ सात छह पाँच चार तीन दो एक शून्य", "9876543210", number]
+  - ["nine oh eight", "908", number]
+  - ["nine eight oh oh one", "98001", number]
+  - ["my number is nine zero three five, seven seven eight, eight nine nine", "my number is 9035778899", number]
+
 must_not_match:
-  - ["main", "mein"]
-  - ["ka", "ki"]
-  - ["ke", "ki"]
-  - ["das", "do"]
-  - ["kal", "aaj"]
-  - ["rao", "iyer"]
-  - ["9845012345", "9845012346"]
-  - ["haan", "nahin"]
+  - ["main", "mein", no_match]
+  - ["मैं", "में", no_match]
+  - ["main", "में", no_match]
+  - ["mein", "मैं", no_match]
+  - ["ka", "ki", no_match]
+  - ["ke", "ki", no_match]
+  - ["ka", "ke", no_match]
+  - ["का", "की", no_match]
+  - ["hai", "hain", no_match]
+  - ["है", "हैं", no_match]
+  - ["hai", "hi", no_match]
+  - ["mera", "meri", no_match]
+  - ["मेरा", "मेरी", no_match]
+  - ["mera", "tera", no_match]
+  - ["tum", "aap", no_match]
+  - ["kal", "aaj", no_match]
+  - ["आज", "कल", no_match]
+  - ["subah", "shaam", no_match]
+  - ["सुबह", "शाम", no_match]
+  - ["rao", "iyer", no_match]
+  - ["Rao", "Iyer", no_match]
+  - ["9845012345", "9845012346", no_match]
+  - ["9845012345", "9845012354", no_match]
+  - ["nine eight four five zero one two three four five", "9845012346", no_match]
+  - ["नौ आठ सात छह पाँच चार तीन दो एक शून्य", "9876543211", no_match]
+  - ["das", "do", no_match]
+  - ["दस", "दो", no_match]
+  - ["gyarah", "barah", no_match]
+  - ["ग्यारह", "बारह", no_match]
+  - ["teen", "tees", no_match]
+  - ["pachees", "pachaas", no_match]
+  - ["do sau", "do", no_match]
+  - ["saat", "saath", no_match]
+  - ["saath", "60", no_match]
+  - ["tera", "13", no_match]
+  - ["बड़ा", "barah", no_match]
+  - ["book", "look", no_match]
+  - ["haan", "nahin", no_match]
+  - ["haan", "nahi", no_match]
+  - ["हाँ", "नहीं", no_match]
+  - ["up", "aap", no_match]
+  - ["aur", "or", no_match]
+  - ["यह", "या", no_match]
+  - ["कह", "का", no_match]
+  - ["keh", "ke", no_match]
+  - ["mujhe", "tujhe", no_match]
+  - ["kya", "kyun", no_match]
+
+known_gaps:
+  - { a: "up", b: "अप", expect: match, why: "a variant ap would merge up with aap (you)" }
+  - { a: "follow up", b: "फॉलो अप", expect: match, why: "observed; अप reads ap, and a variant ap would merge up with aap (you)" }
+  - { a: "check up", b: "चेक अप", expect: match, why: "अप reads ap, and a variant ap would merge up with aap (you)" }
+  - { a: "terah", b: "13", expect: match, why: "terah loses its final h and reads tera, which is also tera (your); 13 is left out of the number words so that tera never becomes a digit" }
+  - { a: "साठ", b: "60", expect: match, why: "साठ (60) and साथ (with) both read sath, and saath (with) is far more common, so 60 is left out of the number words" }
+  - { a: "aapka", b: "आपका", expect: match, why: "ITRANS keeps the medial schwa (apaka against apka), and the consonant skeleton pk is too short for the fallback" }
+  - { a: "iyer", b: "अय्यर", expect: match, why: "अय्यर reads ayar; no spelling rule links it to iyer, and the skeleton r is too short for the fallback" }
+  - { a: "woh", b: "वह", expect: match, why: "वह reads vah, the same key as वाह (wow); a variant vah to vo would merge them" }

@@ -268,3 +268,53 @@ def test_interrupted_report_survives_malformed_event(tmp_path: Path):
     report = interrupted_report(scenario, "a1b2c3d4", run_dir, "ws://h:1", "clean")
     assert report.status == "interrupted"
     assert report.warnings[-1].startswith("partial report failed: KeyError")
+
+
+def test_report_lists_script_unsupported_turns(tmp_path: Path):
+    scenario = Scenario(
+        schema_version=1,
+        id="s1",
+        title="Booking",
+        language="hi-en",
+        domain="test",
+        clock=datetime(2026, 11, 16, 10, 0, tzinfo=IST),
+        caller=CallerVoice(voice="hi-IN-SwaraNeural"),
+        turns=[Turn(say="kal subah"), Turn(say="mujhe")],
+    )
+    events: list[dict] = [
+        {"kind": "caller_turn_start", "t_ms": 1000.0, "turn": 0},
+        {"kind": "caller_transcript", "t_ms": 1500.0, "text": "कल सुबह", "final": True},
+        {"kind": "caller_turn_start", "t_ms": 5000.0, "turn": 1},
+        {"kind": "caller_transcript", "t_ms": 5500.0, "text": "مجھے", "final": True},
+    ]
+    result = CallResult(
+        status="completed",
+        run_dir=tmp_path,
+        turns_started=2,
+        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        timing_unreliable=False,
+        cpu_max_percent=0.0,
+        agent_info={},
+        warnings=[],
+    )
+    report = build_report(scenario, result, events, run_id="r", agent_url="ws://x", preset="clean")
+    assert report.metrics.script_unsupported_turns == [1]
+    assert report.turns[0].loose_wer == 0.0
+    assert report.turns[1].loose_wer is None
+    assert report.turns[1].strict_wer == 1.0
+    assert report.metrics.loose_wer == 0.0
+    html = render_html(report)
+    assert html.count("Urdu script: excluded from loose WER") == 1
+    assert "Urdu-script turns" in html
+    write_report_json(report, tmp_path / "report.json")
+    assert load_report(tmp_path / "report.json").metrics.script_unsupported_turns == [1]
+
+
+def test_report_without_script_unsupported_turns_loads():
+    data = make_report().model_dump(mode="json")
+    del data["metrics"]["script_unsupported_turns"]
+    loaded = Report.model_validate(data)
+    assert loaded.metrics.script_unsupported_turns == []
+    html = render_html(loaded)
+    assert "Urdu script" not in html
+    assert "Urdu-script turns" not in html

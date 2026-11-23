@@ -77,3 +77,12 @@ def test_urdu_turn_excluded() -> None:
     assert summary.loose_wer == 0.0
     assert summary.loose_cer == 0.0
     assert summary.strict_wer is not None and summary.strict_wer > 0.0
+
+
+def test_urdu_turn_has_no_loose_wer_and_is_listed() -> None:
+    assert loose_wer("mujhe", URDU) is None
+    assert loose_wer("kal mujhe", "kal " + URDU) is None
+    assert strict_wer("mujhe", URDU) == 1.0
+    summary = conversation_wer(["kal subah", "mujhe"], [["kal subah"], ["kal " + URDU]])
+    assert summary.script_unsupported_turns == [1]
+    assert summary.loose_wer == 0.0

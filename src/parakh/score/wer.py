@@ -55,7 +55,11 @@ def strict_wer(ref: str, hyp: str) -> float | None:
 
 
 def loose_wer(ref: str, hyp: str) -> float | None:
-    return _rate(normalize(ref).tokens, normalize(hyp).tokens, tokens_equal)
+    """None when the reference is empty or the hypothesis holds Urdu script (EC-41)."""
+    hyp_norm = normalize(hyp)
+    if hyp_norm.script_unsupported:
+        return None
+    return _rate(normalize(ref).tokens, hyp_norm.tokens, tokens_equal)
 
 
 def loose_cer(ref: str, hyp: str) -> float | None:

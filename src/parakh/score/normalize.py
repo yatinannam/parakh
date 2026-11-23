@@ -7,61 +7,51 @@ really differ. Rule order matters; see the numbered comments in `normalize`.
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 
 from indic_transliteration import sanscript  # type: ignore[import-untyped]
 
+from parakh.score import numbers
+
+# Loose key (after the spelling rules) to canonical key. A variant never merges two common
+# distinct words: main/mein, aap/up and aur/or stay apart (spec 6.7, EC-43). Pairs that would
+# need such a merge are known gaps in tests/golden/normalizer_pairs.yaml.
 VARIANTS: dict[str, str] = {
     "nahin": "nahi",
     "nai": "nahi",
     "men": "mein",
     "me": "mein",
     "rav": "rao",
+    # M3a: from Groq Whisper transcripts of the synthetic caller and the scenario pack.
+    "yeh": "ye",  # yeh, ye, ये
+    "yah": "ye",  # यह
+    "subha": "suba",  # subah keeps no final h
+    "sade": "sadhe",  # saade, saadhe
+    "chaie": "chahie",  # chaiye, chahiye
+    "parason": "parso",  # परसों
+    "parson": "parso",
+    "halo": "helo",  # हलो, hello
+    "hailo": "helo",  # हैलो
+    "bye": "bai",  # बाइ, बाई
+    "bay": "bai",  # बाय
+    "sory": "sori",  # sorry, सॉरी
+    "sauri": "sori",  # सौरी
+    "you": "yu",  # थैंक यू
+    "okay": "oke",  # ओके
+    "ok": "oke",
+    "plij": "please",  # प्लीज़
+    "plis": "please",  # प्लीस
+    "taim": "time",  # टाइम
+    "fone": "fon",  # phone, फ़ोन
 }
 
 _PERSO_ARABIC = re.compile("[؀-ۿ]")
 # Devanagari letters and signs, excluding danda and double danda.
 _DEVANAGARI_RUN = re.compile("[ऀ-ॣ०-ॿ]+")
+_DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _VOWELS = "aeiou"
-
-_EN_UNITS = {
-    w: i
-    for i, w in enumerate(
-        [
-            "zero",
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-            "six",
-            "seven",
-            "eight",
-            "nine",
-            "ten",
-            "eleven",
-            "twelve",
-            "thirteen",
-            "fourteen",
-            "fifteen",
-            "sixteen",
-            "seventeen",
-            "eighteen",
-            "nineteen",
-        ]
-    )
-}
-_EN_TENS = {
-    w: (i + 2) * 10
-    for i, w in enumerate(
-        ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-    )
-}
-_HI_DIGITS = {
-    "shunya": 0, "ek": 1, "do": 2, "teen": 3, "tin": 3, "char": 4, "chaar": 4,
-    "paanch": 5, "panch": 5, "chhe": 6, "che": 6, "chhah": 6, "saat": 7,
-    "sat": 7, "aath": 8, "ath": 8, "nau": 9, "das": 10,
-}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -88,75 +78,132 @@ def _split_tokens(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9]", " ", text.lower()).split()
 
 
-def _english_1_99(tokens: list[str], i: int) -> tuple[int, int] | None:
-    """Value and token count of an English number word 1-99 at position i."""
-    if i >= len(tokens):
+def _spell(token: str) -> str:
+    """One pass of the spelling rules; `_loose_key` repeats it until nothing changes."""
+    token = re.sub(r"(?:c+h+)+", "ch", token)  # cch, chh, chch (अच्छा) all read ch
+    token = re.sub(r"c(?!h)", "k", token)
+    token = token.replace("ph", "f").replace("w", "v").replace("q", "k").replace("z", "j")
+    # y between vowels goes before doubles collapse, so kaya gives ka in one pass.
+    token = re.sub(r"(?<=[aeiou])y(?=[aeiou])", "", token)
+    token = token.replace("ee", "i").replace("oo", "u")
+    token = re.sub(r"(.)\1+", r"\1", token)
+    token = re.sub(r"ov$", "o", token)
+    # Final h after a vowel (subah, toh, woh). Three-letter words keep it unless they end in
+    # oh, so kah (say) and yah stay apart from ka and ya (or).
+    if len(token) >= 4 or token.endswith("oh"):
+        token = re.sub(r"(?<=[aeiou])h$", "", token)
+    return token
+
+
+@lru_cache(maxsize=8192)
+def _loose_key(token: str) -> str:
+    while (spelled := _spell(token)) != token:
+        token = spelled
+    return VARIANTS.get(token, token)
+
+
+def _spelling_key(spelling: str) -> str:
+    (token,) = _split_tokens(_romanize_devanagari(spelling))
+    return _loose_key(token)
+
+
+def _key_table(groups: Iterable[tuple[int, Iterable[str]]]) -> dict[str, int]:
+    """Loose key of every spelling to its value; two values on one key is a table bug."""
+    table: dict[str, int] = {}
+    for value, spellings in groups:
+        for spelling in spellings:
+            key = _spelling_key(spelling)
+            if table.setdefault(key, value) != value:
+                raise ValueError(f"number spelling {spelling!r} collides on key {key!r}")
+    return table
+
+
+# Number words are looked up by loose key, so bees, बीस and bis all give 20. For English
+# words the key is a superset of the raw token, which keeps the rule idempotent.
+_EN_UNITS = _key_table((v, (w,)) for v, w in enumerate(numbers.EN_UNITS))
+_EN_TENS = _key_table(((i + 2) * 10, (w,)) for i, w in enumerate(numbers.EN_TENS))
+_WORDS = _key_table([*((v, (w,)) for v, w in enumerate(numbers.EN_UNITS)), *numbers.HINDI.items()])
+_DOUBLE = {_spelling_key(s) for s in numbers.DOUBLE}
+_TRIPLE = {_spelling_key(s) for s in numbers.TRIPLE}
+_HUNDRED = {_spelling_key(s) for s in numbers.HUNDRED}
+if not _EN_TENS.keys().isdisjoint(_WORDS) or not _HUNDRED.isdisjoint(_WORDS):
+    raise ValueError("number word tables overlap")
+
+
+def _below_100(keys: list[str], i: int, *, zero: bool) -> tuple[int, int] | None:
+    """Value and token count of a number word at i: Hindi 0-99, English 0-19, or tens [unit]."""
+    if i >= len(keys):
         return None
-    tok = tokens[i]
-    if tok in _EN_TENS:
-        unit = _EN_UNITS.get(tokens[i + 1]) if i + 1 < len(tokens) else None
+    key = keys[i]
+    if key in _EN_TENS:
+        unit = _EN_UNITS.get(keys[i + 1]) if i + 1 < len(keys) else None
         if unit is not None and 1 <= unit <= 9:
-            return _EN_TENS[tok] + unit, 2
-        return _EN_TENS[tok], 1
-    value = _EN_UNITS.get(tok)
-    if value is not None and value >= 1:
+            return _EN_TENS[key] + unit, 2
+        return _EN_TENS[key], 1
+    value = _WORDS.get(key)
+    if value is not None and (zero or value >= 1):
         return value, 1
     return None
 
 
-def _hundreds(tokens: list[str], i: int) -> tuple[int, int] | None:
-    """Value and token count of "X hundred [and] [Y]" at position i."""
-    unit = _EN_UNITS.get(tokens[i], _HI_DIGITS.get(tokens[i]))
-    if unit is None or not 1 <= unit <= 9:
+def _hundreds(keys: list[str], i: int) -> tuple[int, int] | None:
+    """Value and token count of "[X] hundred|sau [and] [Y]" at i; no X means one hundred."""
+    unit = _WORDS.get(keys[i])
+    if unit is not None and 1 <= unit <= 9 and i + 1 < len(keys) and keys[i + 1] in _HUNDRED:
+        j = i + 2
+    elif keys[i] in _HUNDRED:
+        unit, j = 1, i + 1
+    else:
         return None
-    if i + 1 >= len(tokens) or tokens[i + 1] != "hundred":
-        return None
-    total, used = unit * 100, 2
-    j = i + 2
-    if j < len(tokens) and tokens[j] == "and":
+    total, end = unit * 100, j
+    if j < len(keys) and keys[j] == "and":
         j += 1
-    rest = _english_1_99(tokens, j)
+    rest = _below_100(keys, j, zero=False)
     if rest is not None:
         total += rest[0]
-        used = j + rest[1] - i
-    return total, used
+        end = j + rest[1]
+    return total, end - i
 
 
-def _numbers(tokens: list[str]) -> list[str]:
+def _single_digit(key: str) -> str | None:
+    if len(key) == 1 and key.isdigit():
+        return key
+    value = _WORDS.get(key)
+    return None if value is None or value > 9 else str(value)
+
+
+def _numbers(keys: list[str]) -> list[str]:
     out: list[str] = []
     i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
-        hundreds = _hundreds(tokens, i)
-        if hundreds is not None:
-            out.append(str(hundreds[0]))
-            i += hundreds[1]
-            continue
-        if tok in ("double", "triple") and (nxt in _EN_UNITS or nxt in _HI_DIGITS):
-            digit = _EN_UNITS.get(nxt, _HI_DIGITS.get(nxt))
-            if digit is not None and digit < 10:
-                out.append(str(digit) * (2 if tok == "double" else 3))
+    while i < len(keys):
+        key = keys[i]
+        if key in _DOUBLE or key in _TRIPLE:
+            digit = _single_digit(keys[i + 1]) if i + 1 < len(keys) else None
+            if digit is not None:
+                out.append(digit * (2 if key in _DOUBLE else 3))
                 i += 2
                 continue
-        if tok in _EN_TENS:
-            unit = _EN_UNITS.get(nxt)
-            if unit is not None and 1 <= unit <= 9:
-                out.append(str(_EN_TENS[tok] + unit))
-                i += 2
-            else:
-                out.append(str(_EN_TENS[tok]))
-                i += 1
+        found = _hundreds(keys, i) or _below_100(keys, i, zero=True)
+        if found is not None:
+            out.append(str(found[0]))
+            i += found[1]
             continue
-        if tok == "hundred":
-            out.append("100")
-        elif tok in _EN_UNITS:
-            out.append(str(_EN_UNITS[tok]))
-        elif tok in _HI_DIGITS:
-            out.append(str(_HI_DIGITS[tok]))
-        else:
-            out.append(tok)
+        out.append(key)
         i += 1
+    return out
+
+
+def _oh_as_zero(tokens: list[str]) -> list[str]:
+    """A run of oh (key o) reads as zeros only between two digit tokens: nine oh eight."""
+    out = list(tokens)
+    i = 0
+    while i < len(out):
+        j = i
+        while j < len(out) and out[j] == "o":
+            j += 1
+        if j > i and i > 0 and out[i - 1].isdigit() and j < len(out) and out[j].isdigit():
+            out[i:j] = ["0"] * (j - i)
+        i = max(j, i + 1)
     return out
 
 
@@ -170,28 +217,17 @@ def _join_digits(tokens: list[str]) -> list[str]:
     return out
 
 
-def _loose_key(token: str) -> str:
-    token = re.sub(r"c(?!h)", "k", token)
-    token = token.replace("ph", "f").replace("w", "v").replace("q", "k").replace("z", "j")
-    token = re.sub(r"ov$", "o", token)
-    token = token.replace("ee", "i").replace("oo", "u")
-    token = re.sub(r"(.)\1+", r"\1", token)
-    token = re.sub(r"(?<=[aeiou])y(?=[aeiou])", "", token)
-    return VARIANTS.get(token, token)
-
-
 def normalize(text: str) -> Normalized:
-    # 1. NFC and Perso-Arabic detection.
-    text = unicodedata.normalize("NFC", text).replace("‌", "").replace("‍", "")
+    # 1. NFC, zero-width joiners out, Perso-Arabic detection, Devanagari digits to ASCII.
+    text = unicodedata.normalize("NFC", text).replace("\u200c", "").replace("\u200d", "")
     unsupported = bool(_PERSO_ARABIC.search(text))
+    text = text.translate(_DEVANAGARI_DIGITS)
     # 2. Devanagari to loose ITRANS.
     text = _romanize_devanagari(text)
-    # 3. Lowercase, strip everything outside [a-z0-9], split.
-    tokens = _split_tokens(text)
-    # 4. Numbers, then concatenate adjacent digit tokens.
-    tokens = _join_digits(_numbers(tokens))
-    # 5. Loose phonetic key for non-digit tokens.
-    tokens = [t if t.isdigit() else _loose_key(t) for t in tokens]
+    # 3. Lowercase, strip everything outside [a-z0-9], split, loose key for non-digit tokens.
+    keys = [t if t.isdigit() else _loose_key(t) for t in _split_tokens(text)]
+    # 4. Number words by key, oh between digits, then concatenate adjacent digit tokens.
+    tokens = _join_digits(_oh_as_zero(_numbers(keys)))
     return Normalized(tokens=tokens, script_unsupported=unsupported)
 
 

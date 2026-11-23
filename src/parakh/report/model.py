@@ -74,6 +74,8 @@ class Metrics(_Strict):
     stop_latency: LatencyStatsModel | None = None
     did_not_yield: int = 0
     false_barge_in_ms: list[float] = []
+    # Turn indices whose transcript holds Urdu (Perso-Arabic) script: no loose WER (EC-41).
+    script_unsupported_turns: list[int] = []
 
 
 class Report(_Strict):

@@ -57,6 +57,9 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 <tr><th>Strict WER</th><td>{{ r.metrics.strict_wer | pct }}</td></tr>
 <tr><th>Loose WER</th><td>{{ r.metrics.loose_wer | pct }}</td></tr>
 <tr><th>Loose CER</th><td>{{ r.metrics.loose_cer | pct }}</td></tr>
+{% if r.metrics.script_unsupported_turns %}
+<tr><th>Urdu-script turns</th><td>{{ r.metrics.script_unsupported_turns | length }} (turn {% for i in r.metrics.script_unsupported_turns %}{{ i + 1 }}{% if not loop.last %}, {% endif %}{% endfor %}), excluded from loose WER</td></tr>
+{% endif %}
 {% if r.metrics.wer_reason %}
 <tr><th>WER note</th><td>{{ r.metrics.wer_reason }}</td></tr>
 {% endif %}
@@ -94,7 +97,7 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 {% set t = item.turn %}
 <div class="turn">
 <p><strong>Turn {{ t.index + 1 }}</strong>
- <span class="muted">latency {{ t.latency_ms | ms }}{% if t.latency_reason %} ({{ t.latency_reason }}){% endif %}, strict WER {{ t.strict_wer | pct }}, loose WER {{ t.loose_wer | pct }}</span></p>
+ <span class="muted">latency {{ t.latency_ms | ms }}{% if t.latency_reason %} ({{ t.latency_reason }}){% endif %}, strict WER {{ t.strict_wer | pct }}, {% if t.index in r.metrics.script_unsupported_turns %}Urdu script: excluded from loose WER{% else %}loose WER {{ t.loose_wer | pct }}{% endif %}</span></p>
 {% if t.degradation %}
 <p class="muted">line: SNR {{ "n/a" if t.degradation.snr_db is none else "%.1f dB (at mixing)"|format(t.degradation.snr_db) }}, lost {{ t.degradation.lost_frames }}/{{ t.degradation.frames }} frames, clipped {{ t.degradation.clipped_samples }} samples</p>
 {% endif %}

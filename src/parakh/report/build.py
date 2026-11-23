@@ -223,6 +223,7 @@ def build_report(
             ),
             did_not_yield=sum(1 for s in stops if s.result == "did_not_yield"),
             false_barge_in_ms=false_barge_ins(events),
+            script_unsupported_turns=wer.script_unsupported_turns,
         ),
         warnings=result.warnings,
     )
