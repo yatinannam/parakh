@@ -1,6 +1,5 @@
 """Report assembly: the scored report, the interrupted partial report and the fallback."""
 
-import math
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,10 +7,12 @@ from typing import Any
 
 import parakh
 from parakh import __version__
+from parakh.budget.quota import looks_rate_limited
 from parakh.caller.driver import CallResult
 from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats
 from parakh.caller.recorder import read_events
+from parakh.report.metrics import agent_token_usage, ttfb_ms
 from parakh.report.model import (
     NO_DATA,
     TURN_NOT_REACHED,
@@ -59,26 +60,6 @@ def _git_sha() -> str | None:
     return sha if result.returncode == 0 and sha else None
 
 
-def _ttfb_ms(data: Any) -> list[float]:
-    """Every numeric `value` (seconds) in data["ttfb"], in ms; malformed entries are skipped."""
-    if not isinstance(data, dict):
-        return []
-    entries = data.get("ttfb")
-    if not isinstance(entries, list):
-        return []
-    out: list[float] = []
-    for entry in entries:
-        value = entry.get("value") if isinstance(entry, dict) else None
-        if (
-            isinstance(value, int | float)
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and value >= 0
-        ):
-            out.append(float(value) * 1000)
-    return out
-
-
 def _degradation(line: CallerLine | None, index: int) -> TurnDegradation | None:
     if line is None or index >= len(line.turns):
         return None
@@ -91,6 +72,15 @@ def _degradation(line: CallerLine | None, index: int) -> TurnDegradation | None:
         lost_frames=s.lost_frames,
         clipped_samples=s.clipped_samples,
     )
+
+
+def _status(result: CallResult) -> str:
+    """The call's status, or rate_limited when the agent itself reported a 429 (EC-11)."""
+    if result.status != "completed" and any(
+        w.startswith("agent error") and looks_rate_limited(w) for w in result.warnings
+    ):
+        return "rate_limited"
+    return result.status
 
 
 def build_report(
@@ -124,7 +114,7 @@ def build_report(
         (float(e["t_ms"]), v)
         for e in events
         if e["kind"] == "agent_metrics"
-        for v in _ttfb_ms(e.get("data"))
+        for v in ttfb_ms(e.get("data"))
     ]
     # The greeting and anything else before the first caller turn belongs to no turn.
     first = starts[0] if starts else float("inf")
@@ -181,6 +171,7 @@ def build_report(
     stop_stats = latency_stats(
         [TurnLatency(s.turn, s.stop_latency_ms, None) for s in stops if s.result == "yielded"]
     )
+    llm_tokens, llm_requests = agent_token_usage(events)
     return Report(
         parakh_version=__version__,
         git_sha=_git_sha(),
@@ -193,7 +184,7 @@ def build_report(
         seed=None if line is None else line.seed,
         agent_url=redact_url(agent_url),
         agent_info=result.agent_info,
-        status=result.status,
+        status=_status(result),
         timing_unreliable=result.timing_unreliable,
         jitter=JitterModel(
             n=jitter.n, p50_ms=jitter.p50_ms, p99_ms=jitter.p99_ms, max_ms=jitter.max_ms
@@ -224,6 +215,8 @@ def build_report(
             did_not_yield=sum(1 for s in stops if s.result == "did_not_yield"),
             false_barge_in_ms=false_barge_ins(events),
             script_unsupported_turns=wer.script_unsupported_turns,
+            agent_llm_tokens=llm_tokens,
+            agent_llm_requests=llm_requests,
         ),
         warnings=result.warnings,
     )

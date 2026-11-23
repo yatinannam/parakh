@@ -6,7 +6,11 @@ from parakh.scenario import Scenario
 
 GROQ_STT_LIMITS = {"rpm": 20, "rpd": 2000, "audio_s_per_hour": 7200}
 # Assumed, not read from Groq: check the console for the real limits.
-GROQ_LLM_ASSUMED = {"rpm": 30, "rpd": 1000}
+GROQ_LLM_ASSUMED = {"rpm": 30, "rpd": 1000, "tpd": 200_000}
+# Assumed until Task 9 measures the mean tokens per agent LLM request.
+LLM_TOKENS_PER_REQUEST = 1500
+# Judge model rpd until Task 7 adds judge.yaml: Groq free tier, openai/gpt-oss-120b.
+JUDGE_RPD_ASSUMED = 1000
 _SECONDS_PER_WORD = 0.4
 # Observed per caller turn in the M1 runs (the agent's VAD can split one turn into several).
 STT_PER_TURN = 3
@@ -18,15 +22,22 @@ class Estimate:
     scenarios: int
     stt_calls: int
     llm_calls: int
+    llm_tokens: int
+    judge_calls: int
     audio_seconds: float
     within_limits: bool
     notes: list[str] = field(default_factory=list)
 
 
 def estimate(
-    scenarios: list[Scenario], clip_seconds: list[float] | None = None, presets: int = 1
+    scenarios: list[Scenario],
+    clip_seconds: list[float] | None = None,
+    presets: int = 1,
+    judge: bool = True,
 ) -> Estimate:
     """STT calls = 3 per caller turn; LLM calls = 3 per turn, plus 1 if the agent speaks first.
+
+    Agent LLM tokens = LLM calls * LLM_TOKENS_PER_REQUEST. The judge adds one call per run.
 
     Everything is multiplied by presets (one run per scenario per preset).
 
@@ -42,12 +53,18 @@ def estimate(
     else:
         audio = _SECONDS_PER_WORD * sum(len(t.say.split()) for s in scenarios for t in s.turns)
     audio *= presets
+    tokens = llm * LLM_TOKENS_PER_REQUEST
+    judge_calls = len(scenarios) * presets if judge else 0
     notes: list[str] = []
     if stt > GROQ_STT_LIMITS["rpd"]:
         notes.append(f"rpd: {stt} STT calls > {GROQ_STT_LIMITS['rpd']}")
     if llm > GROQ_LLM_ASSUMED["rpd"]:
         notes.append(f"rpd: {llm} LLM calls > {GROQ_LLM_ASSUMED['rpd']} (assumed limit)")
+    if tokens > GROQ_LLM_ASSUMED["tpd"]:
+        notes.append(f"tpd: {tokens} LLM tokens > {GROQ_LLM_ASSUMED['tpd']} (assumed limit)")
+    if judge_calls > JUDGE_RPD_ASSUMED:
+        notes.append(f"rpd: {judge_calls} judge calls > {JUDGE_RPD_ASSUMED} (assumed limit)")
     if audio > GROQ_STT_LIMITS["audio_s_per_hour"]:
         limit = GROQ_STT_LIMITS["audio_s_per_hour"]
         notes.append(f"audio_s_per_hour: {audio:.0f} s of audio > {limit}")
-    return Estimate(len(scenarios), stt, llm, audio, not notes, notes)
+    return Estimate(len(scenarios), stt, llm, tokens, judge_calls, audio, not notes, notes)

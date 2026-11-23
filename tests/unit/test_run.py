@@ -11,7 +11,8 @@ from parakh import run as run_module
 from parakh.caller.driver import CallResult
 from parakh.caller.pacer import JitterStats
 from parakh.report import build as build_module
-from parakh.report.build import _git_sha, _ttfb_ms, build_report
+from parakh.report.build import _git_sha, build_report
+from parakh.report.metrics import ttfb_ms as _ttfb_ms
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report, write_report_json
 from parakh.run import exit_code, run_batch, run_scenario
 from parakh.scenario import Scenario, ScenarioError
@@ -673,3 +674,110 @@ async def test_comparison_write_error_does_not_stop_batch(
     assert len(results) == 3
     assert warnings
     assert all(w.startswith("could not write the comparison") for w in warnings)
+
+
+def _stamped(report: Report, created_at: str) -> Report:
+    return report.model_copy(update={"created_at": created_at})
+
+
+async def test_resume_skips_completed_and_supersedes_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    batch = base / "runs" / "abcd1234"
+    for run_id, preset, status in (
+        ("old1", "clean", "turn_timeout"),
+        ("old2", "phone", "completed"),
+    ):
+        run_dir = batch / run_id
+        run_dir.mkdir(parents=True)
+        report = make_report(scenario_id="a-01", preset=preset, status=status, run_id=run_id)
+        write_report_json(_stamped(report, "2026-11-20T10:00:00+00:00"), run_dir / "report.json")
+    calls: list[tuple[str, str, Path]] = []
+
+    async def fake(path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: Any):
+        calls.append((path.stem, preset, runs_dir))
+        report = _stamped(
+            make_report(scenario_id="a-01", preset=preset, run_id="new1"),
+            "2026-11-23T10:00:00+00:00",
+        )
+        run_dir = runs_dir / "new1"
+        run_dir.mkdir()
+        write_report_json(report, run_dir / "report.json")
+        return report, run_dir
+
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    skipped: list[tuple[str, str]] = []
+    done: list[str] = []
+    results, batch_dir = await run_batch(
+        _scenario_files(base, ("a",)),
+        "ws://127.0.0.1:1",
+        ["clean", "phone"],
+        runs_dir=base / "runs",
+        engine=FakeEngine(),
+        cache_dir=base / "cache",
+        gap_s=0.0,
+        resume=batch,
+        on_skip=lambda sid, preset: skipped.append((sid, preset)),
+        on_done=lambda r, _d: done.append(r.preset),
+    )
+    assert calls == [("a", "clean", batch)]
+    assert batch_dir == batch
+    assert skipped == [("a-01", "phone")]
+    assert done == ["clean"]
+    assert [r.preset for r, _ in results] == ["clean"]
+    rows = json.loads((batch / "compare.json").read_text(encoding="utf-8"))["rows"]
+    assert sorted((r["preset"], r["run_id"]) for r in rows) == [
+        ("clean", "new1"),
+        ("phone", "old2"),
+    ]
+
+
+async def test_resume_with_nothing_left_writes_comparison(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    batch = base / "runs" / "abcd1234"
+    (batch / "old1").mkdir(parents=True)
+    report = make_report(scenario_id="a-01", preset="clean", run_id="old1")
+    write_report_json(report, batch / "old1" / "report.json")
+    (batch / "bad").mkdir()
+    (batch / "bad" / "report.json").write_text("{", encoding="utf-8")
+    calls = _batch_fake(monkeypatch)
+    warnings: list[str] = []
+    results, batch_dir = await run_batch(
+        _scenario_files(base, ("a",)),
+        "ws://127.0.0.1:1",
+        ["clean"],
+        runs_dir=base / "runs",
+        engine=FakeEngine(),
+        cache_dir=base / "cache",
+        resume=batch,
+        on_warning=warnings.append,
+    )
+    assert calls == []
+    assert results == []
+    assert batch_dir == batch
+    assert (batch / "compare.html").is_file()
+    assert len(warnings) == 1
+    assert "unreadable" in warnings[0]
+
+
+async def test_resume_rejects_non_batch_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    calls = _batch_fake(monkeypatch)
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    for target in (base / "missing", base):
+        with pytest.raises(ValueError, match="not a batch directory"):
+            await run_batch(
+                _scenario_files(base, ("a",)),
+                "ws://127.0.0.1:1",
+                ["clean"],
+                runs_dir=base / "runs",
+                engine=FakeEngine(),
+                cache_dir=base / "cache",
+                resume=target,
+            )
+    assert calls == []

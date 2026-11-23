@@ -326,3 +326,14 @@ async def test_pauses_inside_a_reply_are_not_a_yield(tmp_path: Path) -> None:
     assert barge.result == "did_not_yield"
     assert barge.stop_latency_ms is None
     assert report.metrics.did_not_yield == 1
+
+
+def test_agent_429_ends_run_rate_limited(tmp_path: Path) -> None:
+    behaviour = FakeBehaviour(rtvi_error=(1, "Error code: 429 - rate_limit_exceeded"))
+    with background_agent(behaviour) as url:
+        result, runs = _invoke(tmp_path, url)
+    assert result.exit_code == 2, result.output
+    assert "status: rate_limited" in result.output
+    report = json.loads((_only_run(runs) / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "rate_limited"
+    assert any(w.startswith("agent error") and "429" in w for w in report["warnings"])

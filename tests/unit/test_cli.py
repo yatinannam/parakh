@@ -293,7 +293,10 @@ def _fake_runs(monkeypatch: pytest.MonkeyPatch, statuses: list[str]) -> list[str
     async def fake(_path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: object):
         seen.append(preset)
         report = make_report(preset=preset, status=next(codes), run_id=f"r{len(seen)}")
-        return report, runs_dir / f"r{len(seen)}"
+        run_dir = runs_dir / f"r{len(seen)}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        write_report_json(report, run_dir / "report.json")  # the comparison reads these
+        return report, run_dir
 
     monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
     monkeypatch.setattr(run_module, "run_scenario", fake)
@@ -447,7 +450,9 @@ def test_batch_prints_each_summary_as_it_finishes(
         order.append(f"start {preset}")
         run_dir = runs_dir / preset
         run_dir.mkdir(parents=True)
-        return make_report(preset=preset, run_id=preset), run_dir
+        report = make_report(preset=preset, run_id=preset)
+        write_report_json(report, run_dir / "report.json")
+        return report, run_dir
 
     monkeypatch.setattr(cli, "make_engine", lambda: FakeEngine())
     monkeypatch.setattr(run_module, "run_scenario", fake)
@@ -594,3 +599,39 @@ def test_degrade_all_empty_babble_exits_2(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(cli, "make_engine", lambda: SilentEngine())
     result = _degrade(str(clip), "--preset", "phone_noisy", "--cache-dir", str(base / "cache"))
     _assert_exit_2(result, "no audio")
+
+
+def test_budget_prints_tokens_and_judge_calls() -> None:
+    example = Path(__file__).parents[2] / "scenarios" / "hinglish" / "clinic-book-hinglish-01.yaml"
+    result = CliRunner().invoke(app, ["budget", str(example)])
+    assert "LLM tokens (assumed 1500 per request): 19500" in result.output
+    assert "judge calls: 1" in result.output
+
+
+def test_resume_prints_skipped_and_exits_0_with_nothing_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _fake_runs(monkeypatch, [])
+    scenario = _scenario_file(tmp_path)
+    args = _run_args(tmp_path, "clean", "phone")
+    batch = tmp_path / "dir with space" / "r" / "abcd1234"
+    (batch / "old1").mkdir(parents=True)
+    for run_id, preset in (("old1", "clean"), ("old2", "phone")):
+        (batch / run_id).mkdir(exist_ok=True)
+        report = make_report(scenario_id="cli-exit-01", preset=preset, run_id=run_id)
+        write_report_json(report, batch / run_id / "report.json")
+    result = CliRunner().invoke(app, [*args, "--resume", str(batch)])
+    assert scenario.is_file()
+    assert result.exit_code == 0, result.output
+    assert seen == []
+    assert "skipped (completed): cli-exit-01 / clean" in result.output
+    assert "skipped (completed): cli-exit-01 / phone" in result.output
+    assert f"comparison: {batch / 'compare.html'}" in result.output
+
+
+def test_resume_non_batch_dir_exits_2(tmp_path: Path) -> None:
+    empty = tmp_path / "dir with space" / "empty"
+    empty.mkdir(parents=True)
+    result = CliRunner().invoke(app, [*_run_args(tmp_path), "--resume", str(empty)])
+    _assert_clean_exit_2(result)
+    assert "not a batch directory" in result.output

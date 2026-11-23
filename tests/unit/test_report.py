@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
-from parakh.caller.driver import CallResult
+from parakh.caller.driver import CallResult, CallStatus
 from parakh.caller.pacer import JitterStats
 from parakh.report.build import build_report, interrupted_report
 from parakh.report.html import render_html, write_report_html
@@ -318,3 +319,65 @@ def test_report_without_script_unsupported_turns_loads():
     html = render_html(loaded)
     assert "Urdu script" not in html
     assert "Urdu-script turns" not in html
+
+
+def _one_turn_scenario() -> Scenario:
+    return Scenario(
+        schema_version=1,
+        id="s",
+        title="s",
+        language="en",
+        domain="d",
+        clock=datetime(2026, 11, 19, 10, 0, tzinfo=IST),
+        caller=CallerVoice(voice="v"),
+        turns=[Turn(say="one")],
+    )
+
+
+def _status_report(
+    status: CallStatus, warnings: list[str], events: list[dict[str, Any]] | None = None
+):
+    jitter = JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0)
+    result = CallResult(status, Path("."), 1, jitter, False, 0.0, {}, warnings)
+    return build_report(
+        _one_turn_scenario(), result, events or [], run_id="r", agent_url="ws://h", preset="clean"
+    )
+
+
+def test_agent_rate_limit_marks_run_rate_limited():
+    report = _status_report(
+        "turn_timeout", ["agent error: Error code: 429 - {'error': 'rate_limit_exceeded'}"]
+    )
+    assert report.status == "rate_limited"
+
+
+def test_completed_run_keeps_status_despite_429_warning():
+    report = _status_report("completed", ["agent error: Error code: 429 - rate_limit_exceeded"])
+    assert report.status == "completed"
+
+
+def test_other_agent_error_keeps_status():
+    assert _status_report("turn_timeout", ["agent error: boom"]).status == "turn_timeout"
+    assert _status_report("turn_timeout", ["note: 429 seen"]).status == "turn_timeout"
+
+
+def test_agent_token_usage_summed():
+    def tokens(*totals: Any) -> dict[str, Any]:
+        return {
+            "kind": "agent_metrics",
+            "t_ms": 5.0,
+            "data": {"tokens": [{"prompt_tokens": 1, "total_tokens": t} for t in totals]},
+        }
+
+    report = _status_report("completed", [], [tokens(1200), tokens(1800)])
+    assert report.metrics.agent_llm_tokens == 3000
+    assert report.metrics.agent_llm_requests == 2
+    html = render_html(report)
+    assert "Agent LLM requests" in html
+    assert "Agent LLM tokens" in html
+    # Malformed entries are skipped; no usable entry leaves both None.
+    bad = _status_report("completed", [], [tokens(True, -5, "7", None, 40)])
+    assert (bad.metrics.agent_llm_tokens, bad.metrics.agent_llm_requests) == (40, 1)
+    none = _status_report("completed", [], [tokens("x")])
+    assert (none.metrics.agent_llm_tokens, none.metrics.agent_llm_requests) == (None, None)
+    assert "Agent LLM tokens" not in render_html(none)

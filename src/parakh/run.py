@@ -172,12 +172,16 @@ async def run_batch(
     gap_s: float = BATCH_GAP_S,
     on_done: Callable[[Report, Path], None] | None = None,
     on_warning: Callable[[str], None] | None = None,
+    resume: Path | None = None,
+    on_skip: Callable[[str, str], None] | None = None,
 ) -> tuple[list[tuple[Report, Path]], Path | None]:
     """Run every scenario under every preset, back to back, in scenario then preset order.
 
     One pair runs like run_scenario (runs_dir/<run_id>, no comparison, batch dir None).
     More than one: runs go in runs_dir/<batch_id>/<run_id>/ and compare.html plus
     compare.json are rewritten after every run, so a stopped batch keeps its page.
+    The comparison is built from every report.json in the batch directory, newest per
+    (scenario id, preset), so it also shows runs from before a resume.
     A run that ends in any status does not stop the batch. Ctrl+C and errors raised
     before a call starts write the comparison for every run with a report, then re-raise.
     on_batch gets the batch dir once, before the first run, so a caller can show it
@@ -186,12 +190,25 @@ async def run_batch(
     caller hung up) before the next caller connects and the agent resets its state.
     preflight runs first (also for one run); on_done gets (report, run_dir) after each run's reports
     are written; an OSError writing the comparison goes to on_warning and the batch goes on.
+
+    resume is an existing batch directory: it becomes the batch directory, and every pair
+    whose newest report there is `completed` is skipped (on_skip gets its scenario id and
+    preset; on_done is not called). Only the runs made in this call are returned. Raises
+    ValueError when resume holds no report.json.
     """
+    if resume is not None and not any(resume.glob("*/report.json")):
+        raise ValueError(f"not a batch directory: {resume}")
     tts = engine if engine is not None else EdgeTTSEngine()
-    await preflight(scenario_paths, presets, agent_url, agent_rate, engine=tts, cache_dir=cache_dir)
-    pairs = [(path, preset) for path in scenario_paths for preset in presets]
-    if len(pairs) == 1:
-        path, preset = pairs[0]
+    scenarios = await preflight(
+        scenario_paths, presets, agent_url, agent_rate, engine=tts, cache_dir=cache_dir
+    )
+    pairs = [
+        (path, scenario.id, preset)
+        for path, scenario in zip(scenario_paths, scenarios, strict=True)
+        for preset in presets
+    ]
+    if resume is None and len(pairs) == 1:
+        path, _, preset = pairs[0]
         single = await run_scenario(
             path,
             agent_url,
@@ -205,13 +222,31 @@ async def run_batch(
         if on_done is not None:
             on_done(*single)
         return [single], None
-    batch_dir = runs_dir / secrets.token_hex(4)
+    batch_dir = resume if resume is not None else runs_dir / secrets.token_hex(4)
+    warned: set[str] = set()
+
+    def warn(message: str) -> None:
+        if on_warning is not None and message not in warned:
+            warned.add(message)
+            on_warning(message)
+
+    completed: set[tuple[str, str]] = set()
+    if resume is not None:
+        completed = {
+            (r.scenario_id, r.preset)
+            for r, _ in _batch_reports(batch_dir, warn)
+            if r.status == "completed"
+        }
     done: list[tuple[Report, Path]] = []
     if on_batch is not None:
         on_batch(batch_dir)
     try:
-        for index, (path, preset) in enumerate(pairs):
-            if index and gap_s > 0:
+        for path, scenario_id, preset in pairs:
+            if (scenario_id, preset) in completed:
+                if on_skip is not None:
+                    on_skip(scenario_id, preset)
+                continue
+            if done and gap_s > 0:
                 await asyncio.sleep(gap_s)
             done.append(
                 await run_scenario(
@@ -227,18 +262,38 @@ async def run_batch(
             )
             if on_done is not None:
                 on_done(*done[-1])
-            _write_comparison(done, batch_dir, on_warning)
+            _write_comparison(_batch_reports(batch_dir, warn), batch_dir, on_warning)
+        if not done:
+            _write_comparison(_batch_reports(batch_dir, warn), batch_dir, on_warning)
     except BaseException:
         # The interrupted run has a partial report on disk but never returned.
-        known = {run_dir for _, run_dir in done}
-        for report_path in sorted(batch_dir.glob("*/report.json")):
-            if report_path.parent not in known:
-                with contextlib.suppress(Exception):
-                    done.append((load_report(report_path), report_path.parent))
         with contextlib.suppress(Exception):
-            _write_comparison(done, batch_dir, on_warning)
+            _write_comparison(_batch_reports(batch_dir, warn), batch_dir, on_warning)
         raise
     return done, batch_dir
+
+
+def _batch_reports(
+    batch_dir: Path, on_warning: Callable[[str], None] | None = None
+) -> list[tuple[Report, Path]]:
+    """Every readable */report.json in batch_dir, the newest per (scenario id, preset).
+
+    Newest is by created_at; a tie goes to the later run directory name. Unreadable
+    files go to on_warning.
+    """
+    newest: dict[tuple[str, str], tuple[tuple[str, str], Report, Path]] = {}
+    for report_path in sorted(batch_dir.glob("*/report.json")):
+        try:
+            report = load_report(report_path)
+        except (OSError, ValueError) as exc:
+            if on_warning is not None:
+                on_warning(f"skipped unreadable {report_path}: {type(exc).__name__}")
+            continue
+        key = (report.scenario_id, report.preset)
+        rank = (report.created_at, report_path.parent.name)
+        if key not in newest or rank > newest[key][0]:
+            newest[key] = (rank, report, report_path.parent)
+    return [(report, run_dir) for _, report, run_dir in newest.values()]
 
 
 def _write_comparison(

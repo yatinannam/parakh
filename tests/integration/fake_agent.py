@@ -60,6 +60,9 @@ class FakeBehaviour:
 
     pause_every_ms and pause_ms: a paced reply sends silent 20 ms frames for pause_ms
     after every pause_every_ms of tone, as real TTS pauses inside a sentence.
+
+    rtvi_error (N, text): instead of replying to utterance N, send an RTVI error message
+    with that text and stay silent for it and every later utterance.
     """
 
     greet_ms: int | None = 300
@@ -83,6 +86,7 @@ class FakeBehaviour:
     user_started: bool = False
     pause_every_ms: int | None = None
     pause_ms: int = 0
+    rtvi_error: tuple[int, str] | None = None
 
 
 def _tone(rate: int, ms: int) -> PCM:
@@ -221,6 +225,10 @@ class _Session:
             await self._ws.close()
             return
         if b.silent_after_turn is not None and utterance >= b.silent_after_turn:
+            return
+        if b.rtvi_error is not None and utterance >= b.rtvi_error[0]:
+            if utterance == b.rtvi_error[0]:
+                await self._ws.send(_rtvi("error", {"error": b.rtvi_error[1], "fatal": False}))
             return
         text = next(self._transcripts, None)
         if text is not None:

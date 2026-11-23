@@ -21,7 +21,12 @@ from parakh.audio import (
     resample,
     write_wav,
 )
-from parakh.budget.estimate import GROQ_LLM_ASSUMED, GROQ_STT_LIMITS, estimate
+from parakh.budget.estimate import (
+    GROQ_LLM_ASSUMED,
+    GROQ_STT_LIMITS,
+    LLM_TOKENS_PER_REQUEST,
+    estimate,
+)
 from parakh.console import configure_console
 from parakh.degrade.chain import degrade as degrade_clip
 from parakh.degrade.filters import peak_normalise
@@ -161,6 +166,10 @@ def run(
     runs_dir: Annotated[Path, typer.Option(help="Where run directories go.")] = Path("runs"),
     agent_rate: Annotated[int, typer.Option(help="Sample rate sent to the agent.")] = 16000,
     cache_dir: Annotated[Path, typer.Option(help="TTS cache directory.")] = DEFAULT_CACHE_ROOT,
+    resume: Annotated[
+        Path | None,
+        typer.Option(help="Batch directory to resume: skip pairs that already completed."),
+    ] = None,
 ) -> None:
     """Run scenarios against an agent and write report.json and report.html per run.
 
@@ -189,6 +198,8 @@ def run(
                 on_batch=batch_dirs.append,
                 on_done=on_done,
                 on_warning=lambda message: typer.echo(message, err=True),
+                resume=resume,
+                on_skip=lambda sid, name: typer.echo(f"skipped (completed): {sid} / {name}"),
             )
         )
     except KeyboardInterrupt:
@@ -205,7 +216,7 @@ def run(
         raise _fail(f"run failed: {_describe(exc)}") from exc
     if batch_dir is not None and (batch_dir / "compare.html").is_file():
         typer.echo(f"comparison: {batch_dir / 'compare.html'}")
-    raise typer.Exit(max(exit_code(result) for result, _ in results))
+    raise typer.Exit(max((exit_code(result) for result, _ in results), default=0))
 
 
 def _default_compare_dir(run_dirs: list[Path]) -> Path:
@@ -318,6 +329,8 @@ def budget(
     typer.echo(f"presets: {len(presets)}")
     typer.echo(f"STT calls: {est.stt_calls} (limits {GROQ_STT_LIMITS})")
     typer.echo(f"LLM calls: {est.llm_calls} (assumed limits {GROQ_LLM_ASSUMED}; check the console)")
+    typer.echo(f"LLM tokens (assumed {LLM_TOKENS_PER_REQUEST} per request): {est.llm_tokens}")
+    typer.echo(f"judge calls: {est.judge_calls}")
     typer.echo(f"audio seconds: {est.audio_seconds:.0f}")
     typer.echo("RPM is not estimated")
     typer.echo("noise presets can add STT requests when the agent's VAD reacts to noise")

@@ -63,6 +63,10 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 {% if r.metrics.wer_reason %}
 <tr><th>WER note</th><td>{{ r.metrics.wer_reason }}</td></tr>
 {% endif %}
+{% if r.metrics.agent_llm_requests is not none %}
+<tr><th>Agent LLM requests</th><td>{{ r.metrics.agent_llm_requests }}</td></tr>
+<tr><th>Agent LLM tokens</th><td>{{ r.metrics.agent_llm_tokens }}</td></tr>
+{% endif %}
 <tr><th>Caller pacing jitter p50 / p99 / max</th><td>{{ r.jitter.p50_ms | ms }} / {{ r.jitter.p99_ms | ms }} / {{ r.jitter.max_ms | ms }}</td></tr>
 <tr><th>Peak CPU</th><td>{{ "%.0f"|format(r.cpu_max_percent) }}%</td></tr>
 </table>

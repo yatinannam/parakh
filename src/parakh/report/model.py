@@ -76,6 +76,9 @@ class Metrics(_Strict):
     false_barge_in_ms: list[float] = []
     # Turn indices whose transcript holds Urdu (Perso-Arabic) script: no loose WER (EC-41).
     script_unsupported_turns: list[int] = []
+    # Summed from the agent's RTVI LLM usage metrics; None when it reports none.
+    agent_llm_tokens: int | None = None
+    agent_llm_requests: int | None = None
 
 
 class Report(_Strict):
