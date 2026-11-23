@@ -8,8 +8,9 @@ from parakh.scenario import Scenario
 GROQ_STT_LIMITS = {"rpm": 20, "rpd": 2000, "audio_s_per_hour": 7200}
 # Assumed, not read from Groq: check the console for the real limits.
 GROQ_LLM_ASSUMED = {"rpm": 30, "rpd": 1000, "tpd": 200_000}
-# Assumed until Task 9 measures the mean tokens per agent LLM request.
-LLM_TOKENS_PER_REQUEST = 1500
+# Measured on the clinic agent (openai/gpt-oss-20b) in the M3a clean runs: 88,430 tokens
+# over 109 LLM requests, 811 per request, rounded up to the next 100.
+LLM_TOKENS_PER_REQUEST = 900
 _SECONDS_PER_WORD = 0.4
 # Observed per caller turn in the M1 runs (the agent's VAD can split one turn into several).
 STT_PER_TURN = 3

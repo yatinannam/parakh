@@ -614,7 +614,7 @@ def test_degrade_all_empty_babble_exits_2(tmp_path: Path, monkeypatch: pytest.Mo
 def test_budget_prints_tokens_and_judge_calls() -> None:
     example = Path(__file__).parents[2] / "scenarios" / "hinglish" / "clinic-book-hinglish-01.yaml"
     result = CliRunner().invoke(app, ["budget", str(example)])
-    assert "LLM tokens (assumed 1500 per request): 19500" in result.output
+    assert "LLM tokens (900 per request, measured): 11700" in result.output
     assert "judge calls: 1" in result.output
 
 

@@ -42,14 +42,14 @@ def test_budget_multiplies_presets():
 def test_estimate_counts_judge_and_tokens():
     est = estimate([load_scenario(EXAMPLE)])
     assert est.judge_calls == 1
-    assert est.llm_tokens == 13 * 1500
+    assert est.llm_tokens == 13 * 900
     assert estimate([load_scenario(EXAMPLE)], presets=3).judge_calls == 3
     assert estimate([load_scenario(EXAMPLE)], judge=False).judge_calls == 0
 
 
 def test_estimate_notes_tokens_and_judge_limits():
     scenario = load_scenario(EXAMPLE)
-    est = estimate([scenario] * 11)  # 143 LLM calls: 214,500 tokens > 200,000
+    est = estimate([scenario] * 18)  # 234 LLM calls: 210,600 tokens > 200,000
     assert est.within_limits is False
     assert any("tpd" in note for note in est.notes)
     est = estimate([scenario] * 1001, judge=False)

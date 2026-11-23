@@ -289,7 +289,7 @@ def budget(
     typer.echo(f"presets: {len(presets)}")
     typer.echo(f"STT calls: {est.stt_calls} (limits {GROQ_STT_LIMITS})")
     typer.echo(f"LLM calls: {est.llm_calls} (assumed limits {GROQ_LLM_ASSUMED}; check the console)")
-    typer.echo(f"LLM tokens (assumed {LLM_TOKENS_PER_REQUEST} per request): {est.llm_tokens}")
+    typer.echo(f"LLM tokens ({LLM_TOKENS_PER_REQUEST} per request, measured): {est.llm_tokens}")
     typer.echo(f"judge calls: {est.judge_calls}")
     typer.echo(f"audio seconds: {est.audio_seconds:.0f}")
     typer.echo("RPM is not estimated")
