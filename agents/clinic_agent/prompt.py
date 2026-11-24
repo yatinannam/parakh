@@ -14,6 +14,12 @@ DOCTOR_RULE = (
     "never abbreviate it as Dr. or डॉ."
 )
 
+REPLY_LANGUAGES = {
+    "hi": "English, Hindi or Hinglish",
+    "kn": "English, Kannada or Kannada-English",
+    "ta": "English, Tamil or Tamil-English",
+}
+
 
 def system_prompt(config: AgentConfig) -> str:
     today = datetime.fromisoformat(config.clock).date().isoformat()
@@ -31,7 +37,7 @@ Ask for missing details one at a time, never several in one question.
 Use the available_slots tool to check times, then the book_appointment tool to book.
 Dates go to the tools as YYYY-MM-DD and times as HH:MM in 24-hour format.
 Before you book, read the booking back (doctor, date, time, phone) and ask the caller to confirm.
-Reply in the caller's language style: English, Hindi or Hinglish, matching how they speak.
+Reply in the caller's language style: {REPLY_LANGUAGES[config.profile]}, matching how they speak.
 {DOCTOR_RULE}
 Keep every reply short, one or two sentences, because it is spoken aloud.
 {NEVER_END}

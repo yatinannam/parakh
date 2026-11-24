@@ -1,3 +1,5 @@
+import pytest
+
 from agents.clinic_agent.config import load_config
 from agents.clinic_agent.prompt import system_prompt
 
@@ -29,3 +31,18 @@ def test_prompt_has_no_dr_outside_the_rule() -> None:
     from agents.clinic_agent.prompt import DOCTOR_RULE
 
     assert "Dr." not in system_prompt(load_config()).replace(DOCTOR_RULE, "")
+
+
+@pytest.mark.parametrize(
+    ("profile", "phrase"),
+    [
+        ("hi", "English, Hindi or Hinglish"),
+        ("kn", "English, Kannada or Kannada-English"),
+        ("ta", "English, Tamil or Tamil-English"),
+    ],
+)
+def test_prompt_replies_in_profile_languages(profile: str, phrase: str) -> None:
+    prompt = system_prompt(load_config(profile=profile))
+    assert f"Reply in the caller's language style: {phrase}, matching" in prompt
+    if profile != "hi":
+        assert "Hindi" not in prompt
