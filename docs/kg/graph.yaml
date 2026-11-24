@@ -82,7 +82,7 @@ nodes:
 
   # --- risks (edge-case groups, see spec section 11) ---
   - {id: r_timing, type: risk, label: "Timing accuracy", summary: "EC-02, EC-28, EC-36, EC-37, EC-39, EC-81."}
-  - {id: r_quota, type: risk, label: "Free-tier quota", summary: "EC-10..EC-15, EC-71. EC-10 and EC-11 guards move to M3; the M1 estimate undercounts real agent use."}
+  - {id: r_quota, type: risk, label: "Free-tier quota", summary: "EC-10..EC-15, EC-71. EC-10 and EC-11 guards built in M3a (quota node); the M1 estimate undercounted real agent use, and M3a measured 811 tokens per LLM request."}
   - {id: r_script, type: risk, label: "Script/spelling mismatch", summary: "EC-40..EC-44, EC-49, EC-79."}
   - {id: r_alignment, type: risk, label: "Turn alignment", summary: "EC-33, EC-47, EC-78 (Pipecat 1.16 repeats each transcript and bot segment)."}
   - {id: r_injection, type: risk, label: "Judge prompt injection", summary: "EC-50."}
