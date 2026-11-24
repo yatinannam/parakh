@@ -466,3 +466,37 @@ def test_build_report_fills_scenario_goal():
     result = CallResult("completed", Path("."), 0, jitter, False, 0.0, {}, [])
     built = build_report(scenario, result, [], run_id="r", agent_url="ws://h", preset="clean")
     assert built.scenario_goal == "Book a slot"
+
+
+def _lang_report(language: Any, agent_info: dict, tmp_path: Path) -> Report:
+    scenario = Scenario(
+        schema_version=1,
+        id="s1",
+        title="Booking",
+        language=language,
+        domain="test",
+        clock=datetime(2026, 11, 16, 10, 0, tzinfo=IST),
+        caller=CallerVoice(voice="hi-IN-SwaraNeural"),
+        turns=[Turn(say="kal subah")],
+    )
+    result = CallResult(
+        status="completed",
+        run_dir=tmp_path,
+        turns_started=1,
+        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        timing_unreliable=False,
+        cpu_max_percent=0.0,
+        agent_info=agent_info,
+        warnings=[],
+    )
+    return build_report(scenario, result, [], run_id="r", agent_url="ws://x", preset="clean")
+
+
+def test_language_mismatch_warns(tmp_path: Path):
+    report = _lang_report("kn-en", {"language": "hi"}, tmp_path)
+    assert "agent language hi does not match scenario language kn-en" in report.warnings
+
+
+def test_language_match_no_warning(tmp_path: Path):
+    assert _lang_report("hi-en", {"language": "hi"}, tmp_path).warnings == []
+    assert _lang_report("kn-en", {}, tmp_path).warnings == []

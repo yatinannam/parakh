@@ -218,9 +218,17 @@ def build_report(
             agent_llm_tokens=llm_tokens,
             agent_llm_requests=llm_requests,
         ),
-        warnings=result.warnings,
+        warnings=[*result.warnings, *_language_warnings(scenario, result.agent_info)],
         scenario_goal=scenario.goal,
     )
+
+
+def _language_warnings(scenario: Scenario, agent_info: dict[str, Any]) -> list[str]:
+    """Warn when the agent's language profile is not the scenario's language."""
+    agent = agent_info.get("language")
+    if agent is None or agent == scenario.language.split("-")[0]:
+        return []
+    return [f"agent language {agent} does not match scenario language {scenario.language}"]
 
 
 INTERRUPT_WARNING = "interrupted by the user"

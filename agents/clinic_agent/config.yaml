@@ -1,6 +1,9 @@
 stt_model: whisper-large-v3-turbo
-stt_language: hi
 llm_model: openai/gpt-oss-20b
-tts_voice: hi-IN-SwaraNeural
 sample_rate: 16000
 clock: "2026-11-19T10:00:00+05:30"
+profiles:
+  hi: { stt_language: hi, tts_voice: hi-IN-SwaraNeural }
+  kn: { stt_language: kn, tts_voice: kn-IN-SapnaNeural }
+  ta: { stt_language: ta, tts_voice: ta-IN-PallaviNeural }
+default_profile: hi

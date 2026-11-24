@@ -119,6 +119,7 @@ def build_task(
         await aggregators.assistant().reset()
         info = {
             "agent_info": {
+                "language": config.profile,
                 "stt_model": config.stt_model,
                 "llm_model": config.llm_model,
                 "tts_voice": config.tts_voice,

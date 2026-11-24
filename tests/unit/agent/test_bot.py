@@ -228,3 +228,15 @@ async def test_calls_reset_vad_and_stt_at_both_ends(monkeypatch: pytest.MonkeyPa
 
 def test_pipecat_version_reads_package_metadata() -> None:
     assert bot.PIPECAT_VERSION == importlib.metadata.version("pipecat-ai") == "1.16.0"
+
+
+async def test_agent_info_has_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = load_config(profile="kn")
+    task, transport = bot.build_task(config, "test-key")
+    seen = _spy_frames(task, monkeypatch)
+    await _handler(transport, "on_client_connected")(transport, object())
+    assert isinstance(seen[0], RTVIServerMessageFrame)
+    info = seen[0].data["agent_info"]
+    assert info["language"] == "kn"
+    assert info["stt_model"] == config.stt_model
+    assert info["tts_voice"] == "kn-IN-SapnaNeural"

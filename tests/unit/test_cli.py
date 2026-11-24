@@ -842,3 +842,14 @@ def test_rescore_unknown_scenario_exits_2(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["rescore", str(run_dir), "--scenarios", str(scen)])
     assert result.exit_code == 2
     assert "nope" in result.output
+
+
+def test_summary_prints_language_mismatch_warning(capsys: pytest.CaptureFixture[str]) -> None:
+    from tests.unit.test_report import make_report
+
+    report = make_report()
+    report.warnings = ["agent language hi does not match scenario language kn-en", "other"]
+    cli._echo_summary(report, "ws://x", batched=False)
+    out = capsys.readouterr().out
+    assert "warning: agent language hi does not match scenario language kn-en" in out
+    assert "other" not in out

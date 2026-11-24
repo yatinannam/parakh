@@ -16,3 +16,10 @@ def test_prompt_rules_and_date() -> None:
     assert "Dr. Rao" in prompt
     assert "Dr. Iyer" in prompt
     assert "Parakh Clinic" in prompt
+
+
+def test_prompt_spells_doctor_in_full() -> None:
+    assert (
+        "Always write the word Doctor in full, in every language and script; never abbreviate "
+        "it as Dr. or डॉ." in system_prompt(load_config())
+    )

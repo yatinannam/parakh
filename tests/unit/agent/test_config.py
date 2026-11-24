@@ -32,3 +32,21 @@ def test_verify_models_ok() -> None:
 def test_config_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError):
         AgentConfig.model_validate({"surprise": 1})
+
+
+def test_profiles_fill_language_and_voice() -> None:
+    expected = {
+        "hi": ("hi", "hi-IN-SwaraNeural"),
+        "kn": ("kn", "kn-IN-SapnaNeural"),
+        "ta": ("ta", "ta-IN-PallaviNeural"),
+    }
+    for key, (language, voice) in expected.items():
+        config = load_config(profile=key)
+        assert config.profile == key
+        assert (config.stt_language, config.tts_voice) == (language, voice)
+    assert load_config().profile == "hi"
+
+
+def test_unknown_profile_raises() -> None:
+    with pytest.raises(ValueError, match=r"hi, kn, ta"):
+        load_config(profile="xx")

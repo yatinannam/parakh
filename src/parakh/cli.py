@@ -150,6 +150,9 @@ def _echo_summary(result: Report, agent: str, *, batched: bool) -> None:
     typer.echo(f"loose WER: {_pct(result.metrics.loose_wer)}")
     if result.timing_unreliable:
         typer.echo("timing unreliable: the caller could not keep its 20 ms pace")
+    for warning in result.warnings:
+        if warning.startswith("agent language"):
+            typer.echo(f"warning: {warning}")
     if result.judge is not None:
         typer.echo(f"judge: {judge_detail(result.judge)}")
 
