@@ -13,7 +13,7 @@
 | [`research/2026-11-15-free-tier-and-platform-notes.md`](research/2026-11-15-free-tier-and-platform-notes.md) | Free-tier limits, data policies, Windows wheel checks, licences. |
 | [`research/2026-11-16-pipecat-evals-note.md`](research/2026-11-16-pipecat-evals-note.md) | `pipecat.evals` in Pipecat 1.16: what it does, what it needs from the bot, what it lacks for Parakh, and decision D14. |
 | [`kg/`](kg/README.md) | Knowledge graph: `graph.yaml` plus Mermaid views. |
-| [`runbooks/api-keys.md`](runbooks/api-keys.md) | Creating and checking free API keys (Groq now; Gemini in M3); what to do if a key leaks. |
+| [`runbooks/api-keys.md`](runbooks/api-keys.md) | Creating and checking free API keys (Groq, and Gemini as the optional judge fallback); what to do if a key leaks. |
 | [`runbooks/calibrate-wsl.md`](runbooks/calibrate-wsl.md) | Running Calibrate's text simulation in WSL on free models; troubleshooting; run log. |
 | [`runbooks/run-m1.md`](runbooks/run-m1.md) | M1 real run: start the clinic agent, run the Hinglish scenario, read the report, statuses, Groq budget, troubleshooting, run log. |
 | [`runbooks/run-m2.md`](runbooks/run-m2.md) | M2 run: the five presets, batch runs, the comparison page, what the M2 runs showed, Groq requests per run, troubleshooting, run log. |

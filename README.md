@@ -55,6 +55,8 @@ The same clinic agent, run through all five presets in batches of back-to-back c
 - **Barge-in works.** In `clinic-bargein-hinglish-01` (batch `e4935d41`) the caller cut in 1200 ms into the agent's reply. The agent stopped in 362 ms on `clean` and 419 ms on `phone`, both through Pipecat's interruption frame, with no false barge-ins; loose WER was 10.0 % and 3.3 %.
 - **Variation between runs is large.** The same preset completed in one batch and timed out in the next, once on an empty LLM reply and once on a reply that needed two tool calls and took about 9 s. Compare batches, not single runs. Seven runs used 54 STT and 63 LLM requests, with no rate-limit error.
 
+The two WER figures differ because the final normaliser has rules learned from these transcripts, and the slow-caller scenario had its references fixed after the run. The 6.3 % figure uses both, so it is optimistic for these exact transcripts; the 10.9 % figure is what the normaliser of the time scored.
+
 These numbers come from one agent on one laptop against free tiers; they show what Parakh measures and are not a benchmark of any provider.
 
 ## Results from the Hinglish pack (M3a)
@@ -64,7 +66,7 @@ All 14 scenarios of [`scenarios/hinglish/`](scenarios/hinglish/) ran against the
 | Measure | Value |
 |---|---|
 | Scenarios completed under `clean` | 14 of 14 |
-| Mean loose WER (after rescoring with the final normaliser) | 6.3 %, range 0 to 21 % |
+| Mean loose WER | 6.3 % rescored with the final normaliser (range 0 to 21 %); 10.9 % as run |
 | Strict WER | about 100 %, except the Devanagari scenario (9.5 %) and the English-heavy one (42.9 %) |
 | Judge task progress (1 to 5) | 1 or 2 on 12 of 14 calls; 5 only on the Devanagari scenario |
 | Under `phone` (4 scenarios) | Devanagari 9.5 %, Hindi numbers 7.4 %, unknown doctor 6.9 %, English-heavy 80.0 % |
@@ -76,7 +78,7 @@ All 14 scenarios of [`scenarios/hinglish/`](scenarios/hinglish/) ran against the
 - **The caller can talk over the agent.** The agent's TTS splits a reply at `डॉ.` and the next sentence takes over 800 ms to synthesise, so the 800 ms end-of-turn rule fires mid-reply (EC-88).
 - **An English-heavy caller breaks on a phone line.** With Whisper language `hi`, band-limited English comes back as Devanagari phonetics, and loose WER under `phone` is 80.0 % (EC-91).
 - **The agent's reset works.** A `phone_lossy` call right after a `phone_noisy` call had a clean first turn and no false barge-in (EC-84).
-- **The judge agrees with a hand check.** On 10 calls it was within 1 point of the controller's own scores on every item, and never lowered language match for a Hinglish reply. The calibration table awaits Yatin's confirmation.
+- **The judge agrees with a hand check.** On 10 calls it was within 1 point of the controller's own scores on every item, and never lowered language match for a Hinglish reply. Calibration is pending Yatin's confirmation: the table has not been checked by him yet.
 
 These numbers come from one agent on one laptop against free tiers. They show what Parakh measures and are not a benchmark of any provider.
 
@@ -164,7 +166,7 @@ To hear a preset on one clip: `uv run parakh degrade clip.wav --preset bad_line`
 uv run parakh run scenarios/hinglish --agent ws://127.0.0.1:8765 --preset clean
 ```
 
-A full pack batch takes about 20 to 25 minutes and about 156,000 agent LLM tokens per preset, against the agent model's 200,000 a day. On the development laptop a command that long can be killed when memory runs low, so run the pack in batches of 4 or 5 scenarios and join them with `parakh compare <run dir>... --out runs/m3a-pack`, or resume a stopped batch:
+A full pack batch takes about 20 to 25 minutes and an estimated 155,700 agent LLM tokens per preset (measured about 88,000 over 15 clean runs), against the agent model's 200,000 a day. On the development laptop a command that long can be killed when memory runs low, so run the pack in batches of 4 or 5 scenarios and join them with `parakh compare <run dir>... --out runs/m3a-pack`, or resume a stopped batch:
 
 ```
 uv run parakh run scenarios/hinglish --agent ws://127.0.0.1:8765 --preset clean --resume runs/<batch_id>
@@ -242,7 +244,7 @@ Two worked examples, both checked against the current code:
 | `nine eight four five, zero one two, three four five` (reference) | number words to digits, then joined | `9845012345` |
 | `9845 012 345` (Whisper) | adjacent digit groups joined | `9845012345` |
 
-The normaliser has a golden file of 262 pairs: 199 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 8 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
+The normaliser has a golden file of 263 pairs: 200 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 14 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
 
 ## Architecture
 
@@ -332,7 +334,7 @@ limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 | M0 | Repository hygiene, CI, tooling, Task 1 evaluation of Calibrate | Complete (2026-11-16) |
 | M1 | One Hinglish scenario, clean audio, Pipecat clinic test agent, latency and strict and loose WER, JSON and HTML report | Complete (2026-11-17) |
 | M2 | Degradation presets (telephone band, 8 kHz, G.711 mu-law, noise, packet loss, clipping), barge-in with stop latency, comparison page, batch runs | Complete (2026-11-21) |
-| M3a | Hinglish pack of 14 scenarios, normaliser hardened on 262 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
+| M3a | Hinglish pack of 14 scenarios, normaliser hardened on 263 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
 | M3b | Kannada-English and Tamil-English scenarios, a small real-recording set, the Indic Parler-TTS benchmark, the heavy-model lock | Next |
 | M4 | Mock hospital management system and end-state adapter for deterministic task success; end-to-end CI workflow | Planned |
 | M5 | Public release: scenario pack, comparison run across presets and agent setups | Planned |

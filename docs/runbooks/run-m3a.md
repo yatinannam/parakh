@@ -112,6 +112,8 @@ The judge is advisory. It never changes a run's status or the exit code.
 uv run parakh judge runs/<batch>/<run> ... [--force]
 ```
 
+`parakh judge` rewrites each `report.json` but not the batch's `compare.html`. Afterwards rerun `parakh compare` on the batch's run directories, so the judge-mean row updates.
+
 Pass `--no-judge` to `parakh run` to skip the judge.
 
 ## Measured Groq use
@@ -131,7 +133,7 @@ The estimate's planning guess of 1500 tokens per request was replaced with the m
 All 14 scenarios completed under `clean`. One call was interrupted when the laptop slept and was re-run with `--resume`.
 
 **Loose WER**
-- Low: 0 to 21 %, mean 6.3 % after rescoring with the final normaliser.
+- Low: 0 to 21 %, mean 6.3 % after rescoring with the final normaliser, and 10.9 % as run. The figures differ because the final normaliser has rules learned from these transcripts, and the slow-caller scenario had its references fixed after the run.
 - Strict WER is about 100 %, because Groq Whisper with language `hi` writes Hinglish in Devanagari. The exceptions are the Devanagari scenario (9.5 %) and the English-heavy one (42.9 %).
 
 **The agent rarely finishes a booking correctly.** The judge's task progress was 1 or 2 on 12 of the 14 calls. Only the Devanagari scenario reached 5. The failures repeat:
@@ -194,7 +196,7 @@ One wording issue: for a barge-in that landed after the agent had already finish
 - **The judge shows `skipped (no judge API key)`.** `GROQ_API_KEY` is missing from `.env` or the environment.
 - **The Gemini key is missing.** That is fine: Gemini is only the fallback.
 - **A warning says `could not read .env`.** The file is not UTF-8, often because PowerShell 5.1 `>` wrote it as UTF-16. Re-save it as UTF-8.
-- **The agent's token limit runs out.** The agent model allows 200,000 tokens per day and the pack uses about 156,000 per preset. Run one preset per day and resume.
+- **The agent's token limit runs out.** The agent model allows 200,000 tokens per day and the pack is estimated at 155,700 per preset (measured about 88,000 over 15 clean runs). Run one preset per day and resume.
 - **A call shows `timing_unreliable` with a jitter maximum of minutes.** The laptop slept or the process was suspended mid-call. Resume the batch to re-run it.
 
 ## Run log
