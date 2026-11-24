@@ -56,7 +56,9 @@ VARIANTS: dict[str, str] = {
 # Hesitation fillers carry no content, and a reference may leave them out, so they are
 # dropped on both sides. Devanagari fillers go before transliteration, because हम्म would
 # read ham (हम, we) and अम would read am (English "am"); Roman fillers go by loose key.
-_DEVANAGARI_FILLERS = frozenset({"अम", "अम्म", "उम", "उम्म", "हम्म", "हम्मम"})
+_DEVANAGARI_FILLERS = frozenset({"अम", "अम्म", "उम", "उम्म"})
+# ह then two or more म with a virama between them: हम्म, हम्म्म, हम्मम. Plain हम (we) stays.
+_HMM = re.compile("^ह(?:म्)+म+$")
 _FILLER_KEYS = frozenset({"um", "uh", "hm"})
 
 _PERSO_ARABIC = re.compile("[؀-ۿ]")
@@ -83,7 +85,9 @@ def _transliterate_word(word: str) -> str:
 
 
 def _romanize_word(word: str) -> str:
-    return " " if word in _DEVANAGARI_FILLERS else f" {_transliterate_word(word)} "
+    return (
+        " " if word in _DEVANAGARI_FILLERS or _HMM.match(word) else f" {_transliterate_word(word)} "
+    )
 
 
 def _romanize_devanagari(text: str) -> str:

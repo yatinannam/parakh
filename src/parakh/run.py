@@ -22,7 +22,7 @@ from parakh.report.build import (
 from parakh.report.compare import build_comparison, write_comparison
 from parakh.report.html import write_report_html
 from parakh.report.model import JudgeReport, Report, load_report, write_report_json
-from parakh.scenario import Scenario, load_scenario
+from parakh.scenario import Scenario, ScenarioError, load_scenario
 from parakh.transport.codec import ProtocolError
 from parakh.transport.ws import check_agent_url, redact_url
 from parakh.tts.cache import DEFAULT_CACHE_ROOT, TTSCache, build_scenario_audio
@@ -172,6 +172,13 @@ async def preflight(
         raise ValueError(f"agent_rate {agent_rate} is not supported; use one of: {rates}")
     check_agent_url(agent_url)
     scenarios = [load_scenario(path) for path in scenario_paths]
+    seen: dict[str, Path] = {}
+    for path, scenario in zip(scenario_paths, scenarios, strict=True):
+        if scenario.id in seen:
+            raise ScenarioError(
+                f"scenario id {scenario.id!r} is used by both {seen[scenario.id]} and {path}"
+            )
+        seen[scenario.id] = path
     require_ffmpeg()
     cache = TTSCache(cache_dir)
     for scenario in scenarios:
@@ -217,7 +224,7 @@ async def run_batch(
     are written; an OSError writing the comparison goes to on_warning and the batch goes on.
 
     resume is an existing batch directory: it becomes the batch directory, and every pair
-    whose newest report there is `completed` is skipped (on_skip gets its scenario id and
+    whose newest report there is clean (`exit_code` 0) is skipped (on_skip gets its scenario id and
     preset; on_done is not called). Only the runs made in this call are returned. Raises
     ValueError when resume holds no report.json. judge goes to every run_scenario call.
     """
@@ -261,7 +268,7 @@ async def run_batch(
         completed = {
             (r.scenario_id, r.preset)
             for r, _ in _batch_reports(batch_dir, warn)
-            if r.status == "completed"
+            if exit_code(r) == 0
         }
     done: list[tuple[Report, Path]] = []
     if on_batch is not None:

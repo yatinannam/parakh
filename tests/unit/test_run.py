@@ -936,3 +936,54 @@ async def test_run_batch_passes_judge_through(tmp_path: Path, monkeypatch: pytes
         judge=marker,
     )
     assert seen == [marker]
+
+
+async def test_resume_reruns_completed_run_with_unreliable_timing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    batch = base / "runs" / "abcd1234"
+    run_dir = batch / "old1"
+    run_dir.mkdir(parents=True)
+    report = make_report(scenario_id="a-01", preset="clean", status="completed", run_id="old1")
+    report = report.model_copy(update={"timing_unreliable": True})
+    write_report_json(report, run_dir / "report.json")
+    calls: list[str] = []
+
+    async def fake(path: Path, _url: str, *, preset: str, runs_dir: Path, **_k: Any):
+        calls.append(preset)
+        new = make_report(scenario_id="a-01", preset=preset, run_id="new1")
+        d = runs_dir / "new1"
+        d.mkdir()
+        write_report_json(new, d / "report.json")
+        return new, d
+
+    monkeypatch.setattr(run_module, "run_scenario", fake)
+    await run_batch(
+        _scenario_files(base, ("a",)),
+        "ws://127.0.0.1:1",
+        ["clean"],
+        runs_dir=base / "runs",
+        engine=FakeEngine(),
+        cache_dir=base / "cache",
+        gap_s=0.0,
+        resume=batch,
+    )
+    assert calls == ["clean"]
+
+
+async def test_preflight_rejects_duplicate_scenario_ids(tmp_path: Path):
+    base = tmp_path / "s p"
+    base.mkdir()
+    one, two = _scenario_files(base, ("one", "two"))
+    two.write_text(one.read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(ScenarioError, match=r"one\.yaml.*two\.yaml|two\.yaml.*one\.yaml"):
+        await run_batch(
+            [one, two],
+            "ws://127.0.0.1:1",
+            ["clean"],
+            runs_dir=base / "runs",
+            engine=FakeEngine(),
+            cache_dir=base / "cache",
+        )

@@ -76,7 +76,7 @@ def _degradation(line: CallerLine | None, index: int) -> TurnDegradation | None:
 
 def _status(result: CallResult) -> str:
     """The call's status, or rate_limited when the agent itself reported a 429 (EC-11)."""
-    if result.status != "completed" and any(
+    if result.status in ("turn_timeout", "call_timeout") and any(
         w.startswith("agent error") and looks_rate_limited(w) for w in result.warnings
     ):
         return "rate_limited"

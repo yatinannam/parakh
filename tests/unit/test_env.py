@@ -23,7 +23,9 @@ def test_load_env_reads_cwd_dotenv_without_override(
 ) -> None:
     folder = tmp_path / "dir with space"
     folder.mkdir()
-    (folder / ".env").write_text("GEMINI_API_KEY=from-file\nGROQ_API_KEY=from-file\n")
+    (folder / ".env").write_text(
+        "GEMINI_API_KEY=from-file\nGROQ_API_KEY=from-file\n", encoding="utf-8"
+    )
     monkeypatch.chdir(folder)
     monkeypatch.setenv("GROQ_API_KEY", "already-set")
     try:

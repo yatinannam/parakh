@@ -354,6 +354,13 @@ def test_agent_rate_limit_marks_run_rate_limited():
     assert report.status == "rate_limited"
 
 
+def test_only_timeouts_relabel_to_rate_limited():
+    warn = ["agent error: Error code: 429 - rate_limit_exceeded"]
+    assert _status_report("call_timeout", warn).status == "rate_limited"
+    assert _status_report("agent_hung_up_early", warn).status == "agent_hung_up_early"
+    assert _status_report("interrupted", warn).status == "interrupted"
+
+
 def test_completed_run_keeps_status_despite_429_warning():
     report = _status_report("completed", ["agent error: Error code: 429 - rate_limit_exceeded"])
     assert report.status == "completed"

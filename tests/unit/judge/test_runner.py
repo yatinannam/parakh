@@ -296,3 +296,53 @@ async def test_rate_limit_fallback_never_sleeps_long(tmp_path: Path) -> None:
     )
     assert (await r.judge(rep())).provider == "gemini"
     assert all(s < 60 for s in sleeps), sleeps
+
+
+def _barge(result: str) -> object:
+    from parakh.report.model import BargeInReport
+
+    return BargeInReport.model_validate(
+        {
+            "after_agent_ms": 1200.0,
+            "onset_ms": 1300.0,
+            "stop_latency_ms": None,
+            "result": result,
+            "via": None,
+        }
+    )
+
+
+async def test_agent_finished_first_does_not_require_interruption_score(tmp_path: Path) -> None:
+    fake = Fake(lambda r: groq_ok())  # GOOD has interruption_handling null
+    rpt = report(turn(1, barge_in=_barge("agent_finished_first")))  # type: ignore[arg-type]
+    out = await runner(tmp_path, fake).judge(rpt)
+    assert out.status == "ok" and out.scores is not None
+    assert out.scores.interruption_handling is None
+
+
+async def test_yielded_barge_in_still_requires_interruption_score(tmp_path: Path) -> None:
+    fake = Fake(lambda r: groq_ok())
+    rpt = report(turn(1, barge_in=_barge("yielded")))  # type: ignore[arg-type]
+    out = await runner(tmp_path, fake).judge(rpt)
+    assert out.status == "judge_error" and len(fake.requests) == 4
+
+
+async def test_json_validate_failed_400_is_retried(tmp_path: Path) -> None:
+    bad = httpx.Response(400, json={"error": {"code": "json_validate_failed", "message": "x"}})
+    replies = [bad, groq_ok()]
+    out = await runner(tmp_path, Fake(lambda r: replies.pop(0))).judge(rep())
+    assert out.status == "ok" and out.attempts == 2
+
+
+async def test_json_validate_failed_400_gives_up_after_four(tmp_path: Path) -> None:
+    bad = httpx.Response(400, json={"error": {"code": "json_validate_failed"}})
+    fake = Fake(lambda r: bad)
+    out = await runner(tmp_path, fake).judge(rep())
+    assert out.status == "judge_error" and len(fake.requests) == 4
+
+
+async def test_other_400_still_ends_provider(tmp_path: Path) -> None:
+    fake = Fake(lambda r: httpx.Response(400, json={"error": {"code": "invalid_request"}}))
+    out = await runner(tmp_path, fake).judge(rep())
+    assert out.status == "judge_error" and len(fake.requests) == 1
+    assert out.reason is not None and "HTTP 400" in out.reason

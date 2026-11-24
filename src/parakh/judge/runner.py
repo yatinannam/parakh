@@ -21,7 +21,7 @@ from parakh.budget.quota import (
     send_with_backoff,
 )
 from parakh.judge.model import JudgeScores, parse_scores
-from parakh.judge.prompt import SYSTEM_PROMPT, judge_payload, reached_turns
+from parakh.judge.prompt import SYSTEM_PROMPT, has_scored_barge_in, judge_payload, reached_turns
 from parakh.judge.providers import (
     JudgeConfig,
     ProviderConfig,
@@ -127,7 +127,7 @@ class JudgeRunner:
         if not reached_turns(report) and not any(t.agent_text for t in report.turns):
             return self._report("skipped", reason="nothing to judge")
         payload = judge_payload(report)
-        has_barge_in = any(t.barge_in is not None for t in reached_turns(report))
+        has_barge_in = has_scored_barge_in(report)
         reasons: list[str] = []
         kinds: list[str] = []
         attempts = 0
@@ -238,6 +238,8 @@ class JudgeRunner:
             raise _Ended("error", "timeout") from exc
         except httpx.HTTPError as exc:
             raise _Ended("error", f"transport error: {type(exc).__name__}") from exc
+        if resp.status_code == 400 and "json_validate_failed" in resp.text:
+            return resp  # Groq JSON mode could not parse the model output; a retry usually works
         if not 200 <= resp.status_code < 300:
             body = " ".join(self._redact(resp.text).split())[:_BODY_CHARS]
             why = f"HTTP {resp.status_code}" + (f": {body}" if body else "")

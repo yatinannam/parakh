@@ -145,6 +145,7 @@ must_match:
   - ["achha", "acha", variant]
   - ["accha", "achcha", variant]
   - ["haan", "han", variant]
+  - ["hmm theek hai", "हम्म्म ठीक है", variant]
   - ["mujhe", "mujhey", variant]
   - ["chahiye", "chahie", variant]
   - ["chahiye", "chaiye", variant]
@@ -293,3 +294,9 @@ known_gaps:
   - { a: "aapka", b: "आपका", expect: match, why: "ITRANS keeps the medial schwa (apaka against apka), and the consonant skeleton pk is too short for the fallback" }
   - { a: "woh", b: "वह", expect: match, why: "वह reads vah, the same key as वाह (wow); a variant vah to vo would merge them" }
   - { a: "9611223344", b: "9611 तू तू थी 344", expect: match, why: "observed; Whisper wrote English two as तू and three as थी, which are common Hindi words (you, was), so they are not number words" }
+  - { a: "बच्चा", b: "बचा", expect: no_match, why: "the c+h+ rule reads बच्चा (child) as bacha, the same key as बचा (saved)" }
+  - { a: "बच्चे", b: "बचे", expect: no_match, why: "the c+h+ rule reads बच्चे (children) as bache, the same key as बचे (left over)" }
+  - { a: "जगह", b: "जागा", expect: no_match, why: "the final-h rule reads जगह (place) as jaga, the same key as जागा (woke)" }
+  - { a: "तरह", b: "तारा", expect: no_match, why: "the final-h rule reads तरह (way) as tara, the same key as तारा (star)" }
+  - { a: "सलाह", b: "साला", expect: no_match, why: "the final-h rule reads सलाह (advice) as sala, the same key as साला (brother-in-law)" }
+  - { a: "वजह", b: "वजा", expect: no_match, why: "the final-h rule reads वजह (reason) as vaja, the same key as वजा (subtracted)" }

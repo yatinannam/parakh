@@ -58,6 +58,13 @@ def test_interruption_forced_null_without_barge_in() -> None:
     assert s.interruption_handling is None
 
 
+def test_interruption_key_may_be_omitted() -> None:
+    body = {k: v for k, v in BASE.items() if k != "interruption_handling"}
+    assert parse_scores(json.dumps(body), has_barge_in=False).interruption_handling is None
+    with pytest.raises(ValueError):
+        parse_scores(json.dumps(body), has_barge_in=True)
+
+
 def test_barge_in_needs_a_rating() -> None:
     with pytest.raises(ValueError):
         parse_scores(_obj(interruption_handling=None), has_barge_in=True)

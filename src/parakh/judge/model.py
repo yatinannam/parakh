@@ -28,7 +28,7 @@ class JudgeScores(BaseModel):
     language_match: Score
     task_progress: Score
     politeness: Score
-    interruption_handling: Score | None
+    interruption_handling: Score | None = None
     rationale: str = Field(max_length=600)
     flags: list[str]
 

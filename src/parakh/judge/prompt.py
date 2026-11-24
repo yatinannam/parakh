@@ -48,13 +48,19 @@ def reached_turns(report: Report) -> list[TurnReport]:
 
 
 def _e(text: str) -> str:
-    return escape(text, quote=False)
+    """Escape one data field and flatten its newlines, so it cannot forge a line."""
+    return " ".join(escape(text, quote=False).split())
 
 
 def _barge_in(t: TurnReport) -> str | None:
     b = t.barge_in
     if b is None:
         return None
+    if b.result == "agent_finished_first":
+        return (
+            f"barge-in planned after {b.after_agent_ms:.0f} ms did not happen: "
+            "the agent finished first"
+        )
     head = f"barge-in: caller cut in after {b.after_agent_ms:.0f} ms; "
     if b.result == "yielded":
         if b.stop_latency_ms is None:
@@ -62,7 +68,14 @@ def _barge_in(t: TurnReport) -> str | None:
         return head + f"agent stopped after {b.stop_latency_ms:.0f} ms"
     if b.result == "did_not_yield":
         return head + "did not stop within 2 s"
-    return head + "agent finished first"
+
+
+def has_scored_barge_in(report: Report) -> bool:
+    """True when a reached turn had a barge-in that yielded or did not yield (spec 6.7)."""
+    return any(
+        t.barge_in is not None and t.barge_in.result != "agent_finished_first"
+        for t in reached_turns(report)
+    )
 
 
 def _block(t: TurnReport) -> str:
