@@ -12,8 +12,8 @@ caller:
 turns:
   - say: "Namaskara, naale Dr. Rao jotege appointment beku."
     ref: "namaskara naale doctor rao jotege appointment beku"
-  - say: "Naale bele hattu gante ge."
-    ref: "naale bele hattu gante ge"
+  - say: "Naale beligge hattu gante ge."
+    ref: "naale beligge hattu gante ge"
   - say: "Nanna number nine seven three nine, two zero one, eight four six."
     ref: "nanna number 9739201846"
   - say: "Haan, sari. Thank you, bye."
