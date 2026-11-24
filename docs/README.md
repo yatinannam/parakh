@@ -21,3 +21,4 @@
 | [`reviews/2026-11-16-m0-review.md`](reviews/2026-11-16-m0-review.md) | M0 code review: findings fixed, minors deferred, rulings. |
 | [`reviews/2026-11-17-m1-review.md`](reviews/2026-11-17-m1-review.md) | M1 review: per-task outcomes, final review fixes, rulings, deferred findings, live-run notes. |
 | [`reviews/2026-11-21-m2-review.md`](reviews/2026-11-21-m2-review.md) | M2 review: per-task outcomes, the final review and its fixes, rulings, deferred findings (M3 start and later). |
+| [`reviews/2026-11-24-m3a-review.md`](reviews/2026-11-24-m3a-review.md) | M3a review: per-task outcomes, the final review and its fix wave, rulings, deferred findings (M3b start and later). |

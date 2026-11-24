@@ -108,6 +108,7 @@ nodes:
   - {id: doc_runbook_m2, type: doc, label: "M2 run runbook", path: docs/runbooks/run-m2.md}
   - {id: doc_plan_m3a, type: doc, label: "M3a plan", path: docs/superpowers/plans/2026-11-22-m3a-judge-and-scenarios.md}
   - {id: doc_runbook_m3a, type: doc, label: "M3a run runbook", path: docs/runbooks/run-m3a.md}
+  - {id: doc_review_m3a, type: doc, label: "M3a review", path: docs/reviews/2026-11-24-m3a-review.md}
   - {id: doc_pipecat_evals, type: doc, label: "pipecat.evals note", path: docs/research/2026-11-16-pipecat-evals-note.md}
 
   # --- milestones ---
@@ -287,6 +288,7 @@ edges:
   - {from: d16, to: doc_spec, rel: documented_in}
   - {from: d17, to: doc_spec, rel: documented_in}
   - {from: m3, to: doc_plan_m3a, rel: documented_in}
+  - {from: m3, to: doc_review_m3a, rel: documented_in}
   - {from: m3, to: doc_runbook_m3a, rel: documented_in}
   - {from: judge, to: doc_runbook_m3a, rel: documented_in}
   - {from: normalizer, to: doc_runbook_m3a, rel: documented_in}
