@@ -810,3 +810,35 @@ def test_main_loads_env_through_module_attribute(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(env, "load_env", lambda: calls.append(1))
     assert CliRunner().invoke(app, ["version"]).exit_code == 0
     assert calls == [1]
+
+
+def _rescore_setup(tmp_path: Path, scenario_id: str) -> tuple[Path, Path]:
+    scen_dir = tmp_path / "scen dir" / "sub"
+    scen_dir.mkdir(parents=True)
+    (scen_dir / "ok.yaml").write_text(
+        SCENARIO.replace("cli-exit-01", "s1").replace('say: "haan"', 'say: "haan ji"'),
+        encoding="utf-8",
+    )
+    (scen_dir / "broken.yaml").write_text("not: [valid", encoding="utf-8")
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    rep = make_report(scenario_id=scenario_id, loose_wer=0.0)
+    rep = rep.model_copy(update={"turns": [judge_turn(0, say="haan", heard="haan")]})
+    write_report_json(rep, run_dir / "report.json")
+    return scen_dir.parent, run_dir
+
+
+def test_rescore_command_prints_old_and_new(tmp_path: Path) -> None:
+    scen, run_dir = _rescore_setup(tmp_path, "s1")
+    result = CliRunner().invoke(app, ["rescore", str(run_dir), "--scenarios", str(scen)])
+    assert result.exit_code == 0, result.output
+    assert f"{run_dir}: loose WER 0.0% -> 50.0%" in result.output
+    assert "skipping" in result.output  # the broken file warns on stderr
+    assert (run_dir / "report.html").exists()
+
+
+def test_rescore_unknown_scenario_exits_2(tmp_path: Path) -> None:
+    scen, run_dir = _rescore_setup(tmp_path, "nope")
+    result = CliRunner().invoke(app, ["rescore", str(run_dir), "--scenarios", str(scen)])
+    assert result.exit_code == 2
+    assert "nope" in result.output

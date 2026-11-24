@@ -3,8 +3,10 @@
 import asyncio
 import hashlib
 import json
+import math
 import re
 import sys
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from urllib.parse import quote
@@ -16,6 +18,7 @@ from parakh.budget.guard import RealDataRefused
 from parakh.budget.quota import (
     DailyCounter,
     PaymentRequired,
+    QuotaExhausted,
     RateLimited,
     TokenBucket,
     send_with_backoff,
@@ -34,6 +37,7 @@ from parakh.report.model import JudgeReport, Report
 JUDGE_CACHE_ROOT = Path(".cache/judge")
 QUOTA_ROOT = Path(".cache/quota")
 ATTEMPTS = 4
+TOKEN_OVERHEAD = 600  # reasoning and the JSON reply, on top of the prompt estimate
 REASON_MAX = 500
 _TIMEOUT_S = 60.0
 _BODY_CHARS = 200
@@ -67,6 +71,7 @@ class JudgeRunner:
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         real: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._config = config
         self._keys = dict(keys)
@@ -74,7 +79,13 @@ class JudgeRunner:
         self._transport = transport
         self._sleep = sleep
         self._real = real
-        self._buckets = {p.name: TokenBucket(p.rpm) for p in config.providers}
+        self._buckets = {p.name: TokenBucket(p.rpm, clock=clock) for p in config.providers}
+        self._tpm = {p.name: TokenBucket(p.tpm, clock=clock) for p in config.providers if p.tpm}
+        self._tokens = {
+            p.name: DailyCounter(quota_dir, p.name, p.model, p.tpd, unit="tokens")
+            for p in config.providers
+            if p.tpd
+        }
         self._counters = {
             p.name: DailyCounter(quota_dir, p.name, p.model, p.rpd) for p in config.providers
         }
@@ -194,10 +205,13 @@ class JudgeRunner:
         last = "no reply"
         async with httpx.AsyncClient(transport=self._transport, timeout=_TIMEOUT_S) as client:
             request = build_request(cfg, key, SYSTEM_PROMPT, payload)
+            est = math.ceil(len(SYSTEM_PROMPT + payload) / 3) + TOKEN_OVERHEAD
             for _ in range(ATTEMPTS):
-                resp = await self._send(cfg, client, request, counted)
+                resp = await self._send(cfg, client, request, counted, est)
                 try:
                     reply = parse_reply(cfg, resp)
+                    if (tokens := self._tokens.get(cfg.name)) is not None:
+                        tokens.record(reply.tokens if reply.tokens is not None else est)
                     if reply.truncated:
                         raise ValueError("reply was cut off at the token limit")
                     return parse_scores(reply.text, has_barge_in=has_barge_in), reply
@@ -211,8 +225,15 @@ class JudgeRunner:
         client: httpx.AsyncClient,
         request: httpx.Request,
         counted: Callable[[httpx.AsyncClient, httpx.Request], Awaitable[httpx.Response]],
+        est: int,
     ) -> httpx.Response:
         try:
+            if (tokens := self._tokens.get(cfg.name)) is not None and (
+                tokens.count + est > tokens.limit
+            ):
+                raise QuotaExhausted(cfg.name, cfg.model, "daily token limit reached")
+            if (tpm := self._tpm.get(cfg.name)) is not None:
+                await tpm.acquire(self._sleep, cost=est)
             resp = await send_with_backoff(
                 lambda: counted(client, request),
                 provider=cfg.name,

@@ -291,6 +291,7 @@ def budget(
     typer.echo(f"LLM calls: {est.llm_calls} (assumed limits {GROQ_LLM_ASSUMED}; check the console)")
     typer.echo(f"LLM tokens ({LLM_TOKENS_PER_REQUEST} per request, measured): {est.llm_tokens}")
     typer.echo(f"judge calls: {est.judge_calls}")
+    typer.echo(f"judge tokens: {est.judge_tokens}")
     typer.echo(f"audio seconds: {est.audio_seconds:.0f}")
     typer.echo("RPM is not estimated")
     typer.echo("noise presets can add STT requests when the agent's VAD reacts to noise")

@@ -346,3 +346,88 @@ async def test_other_400_still_ends_provider(tmp_path: Path) -> None:
     out = await runner(tmp_path, fake).judge(rep())
     assert out.status == "judge_error" and len(fake.requests) == 1
     assert out.reason is not None and "HTTP 400" in out.reason
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def _with_limits(tpm: int | None, tpd: int | None, *, gemini: bool = False) -> JudgeConfig:
+    base = load_config()
+    groq = base.providers[0]
+    one = ProviderConfig(
+        name=groq.name,
+        model=groq.model,
+        key_env=groq.key_env,
+        url=groq.url,
+        rpm=groq.rpm,
+        rpd=groq.rpd,
+        params=groq.params,
+        tpm=tpm,
+        tpd=tpd,
+    )
+    rest = base.providers[1:] if gemini else ()
+    return JudgeConfig(prompt_version=base.prompt_version, providers=(one, *rest))
+
+
+async def test_tpm_paces_large_calls(tmp_path: Path) -> None:
+    clock = _Clock()
+    fake = Fake(lambda r: groq_ok())
+    r = JudgeRunner(
+        _with_limits(3000, None),
+        {"GROQ_API_KEY": GROQ_KEY},
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=fake.transport,
+        sleep=clock.sleep,
+        clock=clock,
+    )
+    long_text = "word " * 600  # about 1000 tokens of prompt plus 600 overhead per call
+    assert (await r.judge(rep(long_text))).status == "ok"
+    assert clock.slept == []
+    assert (await r.judge(rep(long_text + "x"))).status == "ok"
+    assert len(clock.slept) == 1 and clock.slept[0] > 0
+
+
+async def test_daily_token_limit_ends_provider(tmp_path: Path) -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "api.groq.com":
+            body = groq_body()
+            body["usage"] = {"total_tokens": 1200}
+            return httpx.Response(200, json=body)
+        return gem_ok()
+
+    fake = Fake(handler)
+    keys = {"GROQ_API_KEY": GROQ_KEY, "GEMINI_API_KEY": GEM_KEY}
+    r = JudgeRunner(
+        _with_limits(None, 1500, gemini=True),
+        keys,
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=fake.transport,
+        sleep=_nosleep,
+    )
+    assert (await r.judge(rep("a"))).provider == "groq"
+    second = await r.judge(rep("b"))
+    assert second.status == "ok" and second.provider == "gemini"
+    assert fake.hosts().count("api.groq.com") == 1
+    only = JudgeRunner(
+        _with_limits(None, 1500),
+        {"GROQ_API_KEY": GROQ_KEY},
+        cache_dir=tmp_path / "judge cache 2",
+        quota_dir=tmp_path / "quota dir",
+        transport=fake.transport,
+        sleep=_nosleep,
+    )
+    out = await only.judge(rep("c"))
+    assert out.status == "rate_limited"
+    assert out.reason is not None and "daily token limit reached" in out.reason

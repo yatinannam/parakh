@@ -6,6 +6,8 @@ providers:
     url: https://api.groq.com/openai/v1/chat/completions
     rpm: 30
     rpd: 1000
+    tpm: 8000
+    tpd: 200000
     params: { temperature: 0, seed: 0, reasoning_effort: low, max_completion_tokens: 2048,
               response_format: { type: json_object } }
   - name: gemini
@@ -14,4 +16,6 @@ providers:
     url: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
     rpm: 10
     rpd: 20
+    tpm: null
+    tpd: null
     params: { temperature: 0, maxOutputTokens: 2048, responseMimeType: application/json }

@@ -1,4 +1,4 @@
-"""Commands that read finished runs: compare, report, judge. Registered on the main app."""
+"""Commands that read finished runs: compare, report, judge, rescore. Registered on the main app."""
 
 import asyncio
 import os
@@ -12,6 +12,8 @@ from parakh.judge.providers import load_config
 from parakh.report.compare import build_comparison, write_comparison
 from parakh.report.html import write_report_html
 from parakh.report.model import JudgeReport, Report, load_report, write_report_json
+from parakh.report.rescore import rescore_report
+from parakh.scenario import ScenarioError, load_scenario
 
 
 def _default_compare_dir(run_dirs: list[Path]) -> Path:
@@ -107,7 +109,48 @@ def judge(
         raise typer.Exit(2)
 
 
+def _scenario_map(root: Path) -> dict[str, Path]:
+    found: dict[str, Path] = {}
+    for file in sorted(root.rglob("*.yaml")):
+        try:
+            found.setdefault(load_scenario(file).id, file)
+        except (ScenarioError, OSError, ValueError) as exc:
+            typer.echo(f"skipping {file}: {exc}", err=True)
+    return found
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.1%}"
+
+
+def rescore(
+    run_dirs: Annotated[list[Path], typer.Argument(help="Run directories with report.json.")],
+    scenarios: Annotated[
+        Path, typer.Option(help="Scenario directory, searched recursively by id.")
+    ] = Path("scenarios"),
+) -> None:
+    """Recompute WER from stored transcripts and the scenarios' current references."""
+    by_id = _scenario_map(scenarios)
+    for run_dir in run_dirs:
+        try:
+            loaded = load_report(run_dir / "report.json")
+        except (OSError, ValueError) as exc:
+            raise fail(f"cannot read report.json in {run_dir}: {exc}") from exc
+        file = by_id.get(loaded.scenario_id)
+        if file is None:
+            raise fail(f"no scenario with id {loaded.scenario_id} under {scenarios}")
+        updated = rescore_report(loaded, load_scenario(file))
+        try:
+            write_report_json(updated, run_dir / "report.json")
+            write_report_html(updated, run_dir)
+        except OSError as exc:
+            raise fail(f"cannot write the report in {run_dir}: {type(exc).__name__}") from exc
+        old, new = loaded.metrics.loose_wer, updated.metrics.loose_wer
+        typer.echo(f"{run_dir}: loose WER {_pct(old)} -> {_pct(new)}")
+
+
 def register(app: typer.Typer) -> None:
     app.command()(compare)
     app.command()(report)
     app.command()(judge)
+    app.command()(rescore)

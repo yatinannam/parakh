@@ -63,3 +63,11 @@ def test_judge_limit_comes_from_the_config():
     from parakh.judge.providers import load_config
 
     assert judge_rpd() == load_config().providers[0].rpd
+
+
+def test_estimate_counts_judge_tokens():
+    est = estimate([load_scenario(EXAMPLE)])
+    assert est.judge_tokens == 1100
+    assert estimate([load_scenario(EXAMPLE)], judge=False).judge_tokens == 0
+    big = estimate([load_scenario(EXAMPLE)] * 200)
+    assert any("judge tokens" in note for note in big.notes)

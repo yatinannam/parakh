@@ -221,3 +221,40 @@ async def test_bucket_partial_refill_sleeps_the_remainder():
     clock.now += 10.0  # a third of a token
     await bucket.acquire(clock.sleep)
     assert clock.slept == [pytest.approx(20.0)]
+
+
+async def test_bucket_cost_above_one():
+    clock = Clock()
+    bucket = TokenBucket(10, clock=clock)
+    await bucket.acquire(clock.sleep, cost=6)
+    assert clock.slept == []
+    await bucket.acquire(clock.sleep, cost=6)
+    assert clock.slept == [pytest.approx(12.0)]
+
+
+async def test_bucket_cost_above_capacity_waits_for_full_then_empties():
+    clock = Clock()
+    bucket = TokenBucket(10, clock=clock)
+    await bucket.acquire(clock.sleep, cost=4)
+    await bucket.acquire(clock.sleep, cost=50)
+    assert clock.slept == [pytest.approx(24.0)]
+    await bucket.acquire(clock.sleep)
+    assert clock.slept[-1] == pytest.approx(6.0)
+
+
+def test_counter_take_amount(tmp_path: Path):
+    counter = DailyCounter(tmp_path / "q dir", "groq", "m", 10, today=lambda: date(2026, 11, 24))
+    counter.take(7)
+    with pytest.raises(QuotaExhausted):
+        counter.take(4)
+    assert counter.count == 7
+
+
+def test_token_counter_has_its_own_file(tmp_path: Path):
+    def day() -> date:
+        return date(2026, 11, 24)
+
+    tokens = DailyCounter(tmp_path, "groq", "a/b", 100, today=day, unit="tokens")
+    tokens.record(30)
+    assert (tmp_path / "groq__a_b__tokens__2026-11-24.json").exists()
+    assert DailyCounter(tmp_path, "groq", "a/b", 100, today=day).count == 0

@@ -18,6 +18,8 @@ class ProviderConfig:
     rpm: int
     rpd: int
     params: dict[str, Any]
+    tpm: int | None = None
+    tpd: int | None = None
 
 
 @dataclass(frozen=True)

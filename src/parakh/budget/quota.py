@@ -55,14 +55,20 @@ class TokenBucket:
         self._tokens = min(self._capacity, self._tokens + (now - self._stamp) * self._rate)
         self._stamp = now
 
-    async def acquire(self, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
-        """Take one token, sleeping exactly until the next one when empty."""
+    async def acquire(
+        self, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, cost: float = 1.0
+    ) -> None:
+        """Take cost tokens (default 1), sleeping exactly until they are there.
+
+        A cost above the capacity waits until the bucket is full, then spends all of it.
+        """
+        need = min(cost, self._capacity)
         while True:
             self._refill()
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
+            if self._tokens >= need:
+                self._tokens -= need
                 return
-            await sleep((1.0 - self._tokens) / self._rate)
+            await sleep((need - self._tokens) / self._rate)
 
 
 def _utc_today() -> date:
@@ -83,36 +89,46 @@ class DailyCounter:
         per_day: int,
         *,
         today: Callable[[], date] = _utc_today,
+        unit: str = "requests",
     ) -> None:
         self._root = root
         self._provider = provider
         self._model = model
         self._per_day = per_day
         self._today = today
+        self._unit = unit
 
     def _path(self) -> Path:
-        name = f"{self._provider}__{self._model.replace('/', '_')}__{self._today()}.json"
+        mid = "" if self._unit == "requests" else f"{self._unit}__"
+        name = f"{self._provider}__{self._model.replace('/', '_')}__{mid}{self._today()}.json"
         return self._root / name
 
     @property
     def count(self) -> int:
         try:
-            value = json.loads(self._path().read_text(encoding="utf-8"))["requests"]
+            value = json.loads(self._path().read_text(encoding="utf-8"))[self._unit]
         except (OSError, ValueError, KeyError, TypeError):
             return 0
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             return 0
         return value
 
-    def take(self) -> None:
-        used = self.count
-        if used >= self._per_day:
-            raise QuotaExhausted(
-                self._provider, self._model, f"daily limit of {self._per_day} requests reached"
-            )
+    @property
+    def limit(self) -> int:
+        return self._per_day
+
+    def record(self, amount: int = 1) -> None:
+        """Add amount to today's count without checking the limit."""
         path = self._path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"requests": used + 1}), encoding="utf-8")
+        path.write_text(json.dumps({self._unit: self.count + amount}), encoding="utf-8")
+
+    def take(self, amount: int = 1) -> None:
+        if self.count + amount > self._per_day:
+            raise QuotaExhausted(
+                self._provider, self._model, f"daily limit of {self._per_day} {self._unit} reached"
+            )
+        self.record(amount)
 
 
 def retry_after_s(value: str | None, now: datetime) -> float | None:
