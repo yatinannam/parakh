@@ -12,6 +12,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from agents.clinic_agent.bot import build_task
 from agents.clinic_agent.config import AgentConfig, load_config, verify_models
+from parakh.heavy import HeavyModelBusy, heavy_model_lock
 
 MODELS_URL = "https://api.groq.com/openai/v1/models"
 
@@ -26,6 +27,12 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--profile", default=None, help="Language profile: hi, kn or ta.")
+    parser.add_argument(
+        "--stt",
+        choices=["groq", "local"],
+        default="groq",
+        help="Speech-to-text: Groq (remote) or local faster-whisper (needed for real audio).",
+    )
     args = parser.parse_args()
 
     key = dotenv_values(".env").get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
@@ -45,16 +52,25 @@ def main() -> None:
         _fail(f"Could not list Groq models ({type(exc).__name__}).")
         return
     try:
-        verify_models(available, config)
+        verify_models(available, config, args.stt)
     except RuntimeError as exc:
         _fail(str(exc))
         return
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_serve(config, key, args.host, args.port))
+        if args.stt == "local":
+            try:
+                with heavy_model_lock("clinic-agent local STT"):
+                    asyncio.run(_serve(config, key, args.host, args.port, args.stt))
+            except HeavyModelBusy as exc:
+                _fail(str(exc))
+        else:
+            asyncio.run(_serve(config, key, args.host, args.port, args.stt))
 
 
-async def _serve(config: AgentConfig, key: str, host: str, port: int) -> None:
+async def _serve(
+    config: AgentConfig, key: str, host: str, port: int, stt_mode: str = "groq"
+) -> None:
     """Serve calls until interrupted.
 
     One pipeline serves call after call and resets its per-call state when a caller
@@ -65,7 +81,7 @@ async def _serve(config: AgentConfig, key: str, host: str, port: int) -> None:
     """
     current = asyncio.current_task()
     while True:
-        task, _transport = build_task(config, key, host=host, port=port)
+        task, _transport = build_task(config, key, host=host, port=port, stt_mode=stt_mode)
         runner = WorkerRunner(handle_sigint=False)
         await runner.add_workers(task)
         await runner.run()

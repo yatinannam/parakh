@@ -13,9 +13,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.groq.llm import GroqLLMService
+from pipecat.services.whisper.stt import WhisperSTTService
+from pipecat.transcriptions.language import Language
 
 from agents.clinic_agent.config import load_config
-from agents.clinic_agent.reset import ClinicSTT, ClinicVAD
+from agents.clinic_agent.reset import ClinicLocalSTT, ClinicSTT, ClinicVAD
 from agents.clinic_agent.tts_edge import EdgeTTSService
 
 # Pipecat's websocket transport touches a websockets API that is deprecated upstream. The
@@ -240,3 +242,33 @@ async def test_agent_info_has_language(monkeypatch: pytest.MonkeyPatch) -> None:
     assert info["language"] == "kn"
     assert info["stt_model"] == config.stt_model
     assert info["tts_voice"] == "kn-IN-SapnaNeural"
+
+
+@pytest.fixture
+def no_whisper_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The constructor calls _load(), which would load or download the model.
+    monkeypatch.setattr(WhisperSTTService, "_load", lambda self: None)
+
+
+@pytest.mark.parametrize(("profile", "language"), [("hi", "hi"), ("kn", "kn"), ("ta", "ta")])
+async def test_local_stt_selected(
+    monkeypatch: pytest.MonkeyPatch, no_whisper_load: None, profile: str, language: str
+) -> None:
+    monkeypatch.setattr(bot, "Pipeline", _SpyPipeline)
+    config = load_config(profile=profile)
+    task, transport = bot.build_task(config, "test-key", stt_mode="local")
+    assert _SpyPipeline.last is not None
+    local = next(p for p in _SpyPipeline.last.listed if isinstance(p, ClinicLocalSTT))
+    assert not any(isinstance(p, ClinicSTT) for p in _SpyPipeline.last.listed)
+    assert local._settings.model == "small"
+    assert local._settings.language == Language(language)
+    assert local._device == "cpu"
+    assert local._compute_type == "int8"
+    seen = _spy_frames(task, monkeypatch)
+    await _handler(transport, "on_client_connected")(transport, object())
+    assert isinstance(seen[0], RTVIServerMessageFrame)
+    assert seen[0].data["agent_info"]["stt_model"] == "local:faster-whisper-small"
+
+
+def test_groq_stt_is_default() -> None:
+    assert bot.build_task(load_config(), "test-key")[0] is not None

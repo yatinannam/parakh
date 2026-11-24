@@ -5,6 +5,8 @@ up would otherwise surface in the next call. Both services lean on private Pipec
 attributes; the version is pinned exactly and the tests break if they move.
 """
 
+from typing import TYPE_CHECKING
+
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADState
 from pipecat.frames.frames import (
@@ -17,6 +19,8 @@ from pipecat.frames.frames import (
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.groq.stt import GroqSTTService
+from pipecat.services.stt_service import SegmentedSTTService
+from pipecat.services.whisper.stt import WhisperSTTService
 
 
 class ClinicVAD(VADProcessor):
@@ -41,8 +45,17 @@ class ClinicVAD(VADProcessor):
             analyzer._low_confidence_windows = 0
 
 
-class ClinicSTT(GroqSTTService):
-    """GroqSTTService that can discard everything a finished call left behind."""
+# For type checking the mixin is a SegmentedSTTService; at run time it is a plain mixin, so
+# the real service class that follows it in the bases supplies the behaviour.
+_MixinBase = SegmentedSTTService if TYPE_CHECKING else object
+
+
+class ResettableSTTMixin(_MixinBase):
+    """Lets a SegmentedSTTService discard everything a finished call left behind.
+
+    Both STT services share Pipecat's SegmentedSTTService, which holds the segment state
+    this touches; put the mixin first in the bases.
+    """
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -76,3 +89,11 @@ class ClinicSTT(GroqSTTService):
         if stale and isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):
             return
         await super().push_frame(frame, direction)
+
+
+class ClinicSTT(ResettableSTTMixin, GroqSTTService):
+    """Groq-hosted STT with the per-call reset."""
+
+
+class ClinicLocalSTT(ResettableSTTMixin, WhisperSTTService):
+    """Local faster-whisper STT with the per-call reset. Audio never leaves the laptop."""

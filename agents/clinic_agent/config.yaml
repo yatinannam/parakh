@@ -1,4 +1,5 @@
 stt_model: whisper-large-v3-turbo
+local_stt_model: small
 llm_model: openai/gpt-oss-20b
 sample_rate: 16000
 clock: "2026-11-19T10:00:00+05:30"

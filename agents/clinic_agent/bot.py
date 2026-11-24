@@ -25,7 +25,7 @@ from pipecat.transports.websocket.server import (
 
 from agents.clinic_agent.config import AgentConfig
 from agents.clinic_agent.prompt import system_prompt
-from agents.clinic_agent.reset import ClinicSTT, ClinicVAD
+from agents.clinic_agent.reset import ClinicLocalSTT, ClinicSTT, ClinicVAD
 from agents.clinic_agent.tools import BookingStore, tool_schemas
 from agents.clinic_agent.tts_edge import EdgeTTSService
 from parakh.tts.engine import EdgeTTSEngine
@@ -38,6 +38,7 @@ def build_task(
     groq_api_key: str,
     host: str = "127.0.0.1",
     port: int = 8765,
+    stt_mode: str = "groq",
 ) -> tuple[PipelineWorker, SingleClientWebsocketServerTransport]:
     rate = config.sample_rate
     transport = SingleClientWebsocketServerTransport(
@@ -51,10 +52,25 @@ def build_task(
         host=host,
         port=port,
     )
-    stt = ClinicSTT(
-        api_key=groq_api_key,
-        settings=ClinicSTT.Settings(model=config.stt_model, language=Language(config.stt_language)),
-    )
+    stt: ClinicSTT | ClinicLocalSTT
+    if stt_mode == "local":
+        # Real recordings must not reach a remote STT (D10): run faster-whisper on the CPU.
+        stt = ClinicLocalSTT(
+            device="cpu",
+            compute_type="int8",
+            settings=ClinicLocalSTT.Settings(
+                model=config.local_stt_model, language=Language(config.stt_language)
+            ),
+        )
+        stt_label = f"local:faster-whisper-{config.local_stt_model}"
+    else:
+        stt = ClinicSTT(
+            api_key=groq_api_key,
+            settings=ClinicSTT.Settings(
+                model=config.stt_model, language=Language(config.stt_language)
+            ),
+        )
+        stt_label = config.stt_model
     llm = GroqLLMService(
         api_key=groq_api_key,
         settings=GroqLLMService.Settings(
@@ -120,7 +136,7 @@ def build_task(
         info = {
             "agent_info": {
                 "language": config.profile,
-                "stt_model": config.stt_model,
+                "stt_model": stt_label,
                 "llm_model": config.llm_model,
                 "tts_voice": config.tts_voice,
                 "pipecat": PIPECAT_VERSION,

@@ -34,6 +34,7 @@ from parakh.degrade.noise import DegradeError, noise_scale, noise_slice
 from parakh.degrade.presets import expand_presets, get_preset
 from parakh.degrade.seeds import part_rng
 from parakh.degrade.track import noise_track
+from parakh.heavy import HeavyModelBusy, run_locked
 from parakh.judge.providers import load_config
 from parakh.judge.runner import JudgeRunner
 from parakh.report.model import Report
@@ -47,6 +48,8 @@ from parakh.tts.ffmpeg import FfmpegMissing
 app = typer.Typer(help="Test voice agents on Indian speech.", no_args_is_help=True)
 tts_app = typer.Typer(help="Caller audio commands.", no_args_is_help=True)
 app.add_typer(tts_app, name="tts")
+heavy_app = typer.Typer(help="Heavy-model lock commands.", no_args_is_help=True)
+app.add_typer(heavy_app, name="heavy")
 
 
 @app.callback()
@@ -54,6 +57,23 @@ def main() -> None:
     """Parakh command-line interface."""
     configure_console()
     env.load_env()
+
+
+@heavy_app.command(
+    "run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
+)
+def heavy_run(
+    ctx: typer.Context,
+    owner: Annotated[str, typer.Argument(help="Name shown to anyone blocked by the lock.")],
+) -> None:
+    """Run a command while holding the heavy-model lock: parakh heavy run OWNER -- CMD..."""
+    if not ctx.args:
+        raise fail("give a command after --: parakh heavy run OWNER -- CMD...")
+    try:
+        code = run_locked(owner, ctx.args)
+    except HeavyModelBusy as exc:
+        raise fail(str(exc)) from exc
+    raise typer.Exit(code)
 
 
 @app.command()

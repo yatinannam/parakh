@@ -13,10 +13,11 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.whisper.stt import WhisperSTTService
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
-    from agents.clinic_agent.reset import ClinicSTT, ClinicVAD
+    from agents.clinic_agent.reset import ClinicLocalSTT, ClinicSTT, ClinicVAD, ResettableSTTMixin
 
 RATE = 16000
 WINDOW = 512
@@ -67,15 +68,26 @@ async def test_vad_reset_returns_to_quiet_without_stop_event(
     assert events == []
 
 
-def _stt() -> ClinicSTT:
-    stt = ClinicSTT(api_key="test-key", sample_rate=RATE)
-    stt._sample_rate = RATE  # set by StartFrame in a running pipeline
-    stt._speech_buffer.set_sample_rate(RATE)
-    return stt
+@pytest.fixture(params=[ClinicSTT, ClinicLocalSTT], ids=["groq", "local"])
+def stt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> ResettableSTTMixin:
+    # WhisperSTTService.__init__ calls _load(), which loads (and may download) the model.
+    monkeypatch.setattr(WhisperSTTService, "_load", lambda self: None)
+    if request.param is ClinicSTT:
+        service: Any = ClinicSTT(api_key="test-key", sample_rate=RATE)
+    else:
+        service = ClinicLocalSTT(sample_rate=RATE)
+    service._sample_rate = RATE  # set by StartFrame in a running pipeline
+    service._speech_buffer.set_sample_rate(RATE)
+    return service
 
 
-async def test_stt_reset_drops_open_segment() -> None:
-    stt = _stt()
+def test_reset_mixin_on_both_services() -> None:
+    assert issubclass(ClinicSTT, ResettableSTTMixin)
+    assert issubclass(ClinicLocalSTT, ResettableSTTMixin)
+    assert issubclass(ClinicLocalSTT, WhisperSTTService)
+
+
+async def test_stt_reset_drops_open_segment(stt: Any) -> None:
     await stt._handle_user_started_speaking(VADUserStartedSpeakingFrame(start_secs=0.2))
     stt._speech_buffer.append(_loud(RATE))
     stt.reset_call()
@@ -83,8 +95,7 @@ async def test_stt_reset_drops_open_segment() -> None:
     assert stt._segment_queue.empty()
 
 
-async def test_stt_reset_removes_queued_segments() -> None:
-    stt = _stt()
+async def test_stt_reset_removes_queued_segments(stt: Any) -> None:
     stt._segment_queue.put_nowait((b"old", 1))
     stt._segment_queue.put_nowait((b"older", 2))
     stt._segment_count = 2
@@ -92,8 +103,7 @@ async def test_stt_reset_removes_queued_segments() -> None:
     assert stt._segment_queue.empty()
 
 
-async def test_stt_keeps_segments_of_the_next_call() -> None:
-    stt = _stt()
+async def test_stt_keeps_segments_of_the_next_call(stt: Any) -> None:
     stt.reset_call()
     await stt._handle_user_started_speaking(VADUserStartedSpeakingFrame(start_secs=0.2))
     stt._speech_buffer.append(_loud(RATE))
@@ -102,7 +112,7 @@ async def test_stt_keeps_segments_of_the_next_call() -> None:
 
 
 async def test_stt_reset_drops_transcripts_of_old_segments(
-    monkeypatch: pytest.MonkeyPatch,
+    stt: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pushed: list[Frame] = []
 
@@ -110,7 +120,6 @@ async def test_stt_reset_drops_transcripts_of_old_segments(
         pushed.append(frame)
 
     monkeypatch.setattr(FrameProcessor, "push_frame", push_frame)
-    stt = _stt()
     stt._segment_count = 3
     stt._transcribing_segment = 3
     stt.reset_call()

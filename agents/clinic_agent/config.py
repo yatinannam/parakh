@@ -19,6 +19,7 @@ class AgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     stt_model: str
+    local_stt_model: str
     stt_language: str
     llm_model: str
     tts_voice: str
@@ -42,9 +43,13 @@ def load_config(path: Path = DEFAULT_PATH, profile: str | None = None) -> AgentC
     return AgentConfig.model_validate(data)
 
 
-def verify_models(available: set[str], config: AgentConfig) -> None:
-    """Raise RuntimeError naming each configured model id the provider does not list."""
-    missing = [m for m in (config.stt_model, config.llm_model) if m not in available]
+def verify_models(available: set[str], config: AgentConfig, stt_mode: str = "groq") -> None:
+    """Raise RuntimeError naming each configured model id the provider does not list.
+
+    The local STT runs on this machine, so only the LLM is checked in that mode.
+    """
+    wanted = [config.llm_model] if stt_mode == "local" else [config.stt_model, config.llm_model]
+    missing = [m for m in wanted if m not in available]
     if missing:
         raise RuntimeError(
             "Configured models not available on Groq: "

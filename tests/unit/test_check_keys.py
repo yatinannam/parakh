@@ -128,3 +128,20 @@ def test_gemini_key_optional(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr()
     assert "gemini: set" in out.out
     assert gem not in out.out + out.err
+
+
+def test_hf_token_optional(tmp_path, capsys, monkeypatch):
+    for name in ("GROQ_API_KEY", "GEMINI_API_KEY", "HF_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    env = tmp_path / "dir with space" / ".env"
+    env.parent.mkdir()
+    env.write_text(f"GROQ_API_KEY={KEY}\n", encoding="utf-8")
+    body = {"data": [{"id": "whisper-large-v3-turbo"}]}
+    assert main(["--env", str(env)], client=client(200, body)) == 0
+    assert "hf_token: not set (optional)" in capsys.readouterr().out
+    token = "hf_not_a_real_token"
+    env.write_text(f"GROQ_API_KEY={KEY}\nHF_TOKEN={token}\n", encoding="utf-8")
+    assert main(["--env", str(env)], client=client(200, body)) == 0
+    out = capsys.readouterr()
+    assert "hf_token: set" in out.out
+    assert token not in out.out + out.err
