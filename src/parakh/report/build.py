@@ -150,7 +150,7 @@ def build_report(
                 latency_ms=None if lat is None else lat.latency_ms,
                 latency_reason=reason,
                 strict_wer=strict_wer(turn.reference, text) if scored else None,
-                loose_wer=loose_wer(turn.reference, text) if scored else None,
+                loose_wer=loose_wer(turn.reference, text, scenario.language) if scored else None,
                 agent_text=" ".join(agent_text[index]),
                 agent_ttfb_ms=list(agent_ttfb[index]),
                 degradation=_degradation(line, index) if reached else None,
@@ -165,7 +165,7 @@ def build_report(
                 ),
             )
         )
-    wer = conversation_wer([t.reference for t in scenario.turns], transcripts)
+    wer = conversation_wer([t.reference for t in scenario.turns], transcripts, scenario.language)
     stats = latency_stats(latencies)
     jitter = result.jitter
     stop_stats = latency_stats(

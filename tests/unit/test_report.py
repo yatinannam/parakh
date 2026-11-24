@@ -500,3 +500,45 @@ def test_language_mismatch_warns(tmp_path: Path):
 def test_language_match_no_warning(tmp_path: Path):
     assert _lang_report("hi-en", {"language": "hi"}, tmp_path).warnings == []
     assert _lang_report("kn-en", {}, tmp_path).warnings == []
+
+
+def test_build_report_scores_in_scenario_language(tmp_path: Path):
+    scenario = Scenario(
+        schema_version=1,
+        id="s1",
+        title="Booking",
+        language="ta-en",
+        domain="test",
+        clock=datetime(2026, 11, 16, 10, 0, tzinfo=IST),
+        caller=CallerVoice(voice="ta-IN-PallaviNeural"),
+        turns=[Turn(say="naalaikku pathu manikku venum")],
+    )
+    events: list[dict] = [
+        {"kind": "caller_turn_start", "t_ms": 1000.0, "turn": 0},
+        {
+            "kind": "caller_transcript",
+            "t_ms": 1500.0,
+            "text": "நாளைக்கு 10 மணிக்கு வேணும்",
+            "final": True,
+        },
+    ]
+    result = CallResult(
+        status="completed",
+        run_dir=tmp_path,
+        turns_started=1,
+        jitter=JitterStats(n=0, p50_ms=0.0, p99_ms=0.0, max_ms=0.0),
+        timing_unreliable=False,
+        cpu_max_percent=0.0,
+        agent_info={},
+        warnings=[],
+    )
+    report = build_report(scenario, result, events, run_id="r", agent_url="ws://x", preset="clean")
+    assert report.turns[0].loose_wer == 0.0
+    assert report.metrics.loose_wer == 0.0
+    assert report.metrics.loose_cer == 0.0
+    assert 'class="miss"' not in render_html(report)
+
+
+def test_html_renders_report_with_unknown_language():
+    report = make_report().model_copy(update={"language": "xx"})
+    assert "kal" in render_html(report)

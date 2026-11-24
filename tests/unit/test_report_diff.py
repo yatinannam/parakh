@@ -71,3 +71,10 @@ def test_wrong_digit_run_is_marked_as_a_whole():
         ("char", True),
         ("teen", True),
     ]
+
+
+def test_mark_misses_uses_language():
+    # ondu eradu are Kannada number words: 12 in kn-en, plain words in hi-en.
+    assert mark_misses("ondu eradu", "1 2", "kn-en") == [("1", False), ("2", False)]
+    assert mark_misses("ondu eradu", "1 2") == [("1", True), ("2", True)]
+    assert mark_misses("venum", "வேணும்", "ta-en") == [("வேணும்", False)]

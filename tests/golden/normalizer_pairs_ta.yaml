@@ -1,0 +1,169 @@
+# Golden pairs for the script-tolerant normaliser, Tamil-English (spec 6.7, language ta-en).
+#
+# Each pair is [a, b, group]. test_golden_ta compares a and b with normalize(x, "ta-en");
+# test_golden_counts_kn_ta reads the group. Groups:
+#   script    Tamil script against Roman
+#   loanword  English words written in Tamil script
+#   variant   Roman spelling variants
+#   number    number words, digit groups and Tamil numerals
+#   no_match  words that must stay distinct
+#
+# ta-en keys collapse voicing (b to p, d to t, g to k, dh and th to t), zh to l, and sh
+# and ch to s, because Tamil script does not mark voicing and Roman spellings differ there.
+#
+# Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
+# not from a Whisper transcript. No Whisper transcript of Tamil exists yet; live runs add
+# observed pairs later.
+#
+# A pair the normaliser gets wrong goes to known_gaps with its reason; each known gap is an
+# xfail(strict=True) test, so fixing one fails the suite until the pair moves up. Never
+# delete a pair.
+
+must_match:
+  # --- script ---
+  - ["vanakkam", "வணக்கம்", script]  # textbook
+  - ["naalaikku", "நாளைக்கு", script]  # textbook
+  - ["doctor rao", "டாக்டர் ராவ்", script]  # textbook
+  - ["kitta", "கிட்ட", script]  # textbook
+  - ["venum", "வேணும்", script]  # textbook
+  - ["kaalaila", "காலைல", script]  # textbook
+  - ["manikku", "மணிக்கு", script]  # textbook
+  - ["en", "என்", script]  # textbook
+  - ["seri", "சரி", script]  # textbook
+  - ["romba", "ரொம்ப", script]  # textbook
+  - ["nandri", "நன்றி", script]  # textbook
+  - ["illa", "இல்ல", script]  # textbook
+  - ["ippo", "இப்போ", script]  # textbook
+  - ["konjam", "கொஞ்சம்", script]  # textbook
+  - ["paravaayilla", "பரவாயில்ல", script]  # textbook
+  - ["paiyanukku", "பையனுக்கு", script]  # textbook
+  - ["naalai marunaal", "நாளை மறுநாள்", script]  # textbook
+  - ["saayangaalam", "சாயங்காலம்", script]  # textbook
+  - ["mani", "மணி", script]  # textbook
+  - ["vendaam", "வேண்டாம்", script]  # textbook
+  - ["enakku", "எனக்கு", script]  # textbook
+  - ["innikku", "இன்னிக்கு", script]  # textbook
+  - ["indru", "இன்று", script]  # textbook
+  - ["tamil", "தமிழ்", script]  # textbook
+  - ["magan", "மகன்", script]  # textbook
+  - ["pazham", "பழம்", script]  # textbook
+  - ["kuzhandhai", "குழந்தை", script]  # textbook
+  - ["ponnu", "பொண்ணு", script]  # textbook
+  - ["vaanga", "வாங்க", script]  # textbook
+  - ["sollunga", "சொல்லுங்க", script]  # textbook
+  - ["thambi", "தம்பி", script]  # textbook
+  - ["akka", "அக்கா", script]  # textbook
+  - ["amma", "அம்மா", script]  # textbook
+  - ["vazhi", "வழி", script]  # textbook
+  - ["seri romba nandri bye", "சரி ரொம்ப நன்றி பை", script]  # textbook
+  - ["vanakkam naalaikku doctor rao kitta appointment venum", "வணக்கம் நாளைக்கு டாக்டர் ராவ் கிட்ட அப்பாயிண்ட்மென்ட் வேணும்", script]  # textbook
+  # --- loanword ---
+  - ["doctor", "டாக்டர்", loanword]  # textbook
+  - ["appointment", "அப்பாயிண்ட்மென்ட்", loanword]  # textbook
+  - ["appointment", "அப்பாய்ண்ட்மெண்ட்", loanword]  # textbook
+  - ["number", "நம்பர்", loanword]  # textbook
+  - ["phone", "ஃபோன்", loanword]  # textbook
+  - ["thank you", "தேங்க் யூ", loanword]  # textbook
+  - ["okay", "ஓகே", loanword]  # textbook
+  - ["hello", "ஹலோ", loanword]  # textbook
+  - ["bye", "பை", loanword]  # textbook
+  - ["time", "டைம்", loanword]  # textbook
+  - ["please", "ப்ளீஸ்", loanword]  # textbook
+  - ["correct", "கரெக்ட்", loanword]  # textbook
+  - ["clinic", "கிளினிக்", loanword]  # textbook
+  - ["morning", "மார்னிங்", loanword]  # textbook
+  - ["afternoon", "ஆஃப்டர்நூன்", loanword]  # textbook
+  - ["hospital", "ஹாஸ்பிட்டல்", loanword]  # textbook
+  - ["booking", "புக்கிங்", loanword]  # textbook
+  - ["mobile", "மொபைல்", loanword]  # textbook
+  - ["tomorrow", "டுமாரோ", loanword]  # textbook
+  - ["confirm", "கன்ஃபர்ம்", loanword]  # textbook
+  # --- variant ---
+  - ["vanakkam", "vanakam", variant]  # textbook
+  - ["naalaikku", "nalaiku", variant]  # textbook
+  - ["romba", "rompa", variant]  # textbook
+  - ["seri", "sari", variant]  # textbook
+  - ["kitta", "kita", variant]  # textbook
+  - ["venum", "vaenum", variant]  # textbook
+  - ["saayangaalam", "sayangalam", variant]  # textbook
+  - ["kaalaila", "kalaila", variant]  # textbook
+  - ["paiyanukku", "payyanukku", variant]  # textbook
+  - ["doctor rao", "Dr. Rao", variant]  # textbook
+  - ["thambi", "tambi", variant]  # textbook
+  - ["inniki", "innikku", variant]  # textbook
+  - ["illai", "illa", variant]  # textbook
+  - ["okay", "ok", variant]  # textbook
+  - ["bye", "bai", variant]  # textbook
+  - ["thamizh", "tamil", variant]  # textbook
+  - ["kuzhandhai", "kuzhanthai", variant]  # textbook
+  # --- number ---
+  - ["onnu", "1", number]  # textbook
+  - ["ondru", "1", number]  # textbook
+  - ["rendu", "2", number]  # textbook
+  - ["irandu", "2", number]  # textbook
+  - ["moonu", "3", number]  # textbook
+  - ["moondru", "3", number]  # textbook
+  - ["naalu", "4", number]  # textbook
+  - ["naangu", "4", number]  # textbook
+  - ["anju", "5", number]  # textbook
+  - ["ainthu", "5", number]  # textbook
+  - ["aaru", "6", number]  # textbook
+  - ["ezhu", "7", number]  # textbook
+  - ["ettu", "8", number]  # textbook
+  - ["onbadhu", "9", number]  # textbook
+  - ["poojyam", "0", number]  # textbook
+  - ["pathu", "10", number]  # textbook
+  - ["paththu", "10", number]  # textbook
+  - ["padhinonnu", "11", number]  # textbook
+  - ["irubadhu", "20", number]  # textbook
+  - ["irubadhu anju", "25", number]  # textbook
+  - ["இருபத்தைந்து", "25", number]  # textbook
+  - ["nooru", "100", number]  # textbook
+  - ["thonnooru", "90", number]  # textbook
+  - ["en number ezhu moonu anju, ettu onnu onbadhu, naalu poojyam rendu aaru.", "en number 7358194026", number]  # textbook
+  - ["என் நம்பர் ஒன்பது நான்கு நான்கு நான்கு, இரண்டு எட்டு ஐந்து, ஏழு ஒன்று மூன்று.", "என் நம்பர் 9444285713", number]  # textbook
+  - ["௯௮௪௦", "9840", number]  # textbook
+  - ["பத்து மணிக்கு", "10 manikku", number]  # textbook
+  - ["double four", "44", number]  # textbook
+  - ["டபுள் நான்கு", "44", number]  # textbook
+  - ["nine eight four zero, one two three, five six seven", "9840123567", number]  # textbook
+  - ["நைன் எய்ட் ஃபைவ்", "985", number]  # textbook
+
+must_not_match:
+  - ["venum", "vendaam", no_match]  # textbook: want, don't want
+  - ["வேணும்", "வேண்டாம்", no_match]  # textbook
+  - ["naalaikku", "inniki", no_match]  # textbook: tomorrow, today
+  - ["kaalai", "saayangaalam", no_match]  # textbook: morning, evening
+  - ["onnu", "rendu", no_match]  # textbook: 1, 2
+  - ["ஒன்று", "இரண்டு", no_match]  # textbook
+  - ["naalu", "naal", no_match]  # textbook: four, day
+  - ["magan", "magal", no_match]  # textbook: son, daughter
+  - ["மகன்", "மகள்", no_match]  # textbook
+  - ["illa", "irukku", no_match]  # textbook: no, there is
+  - ["pathu", "ettu", no_match]  # textbook: 10, 8
+  - ["en", "un", no_match]  # textbook: my, your
+  - ["kaalai", "maalai", no_match]  # textbook: morning, evening
+  - ["onnu", "onnum", no_match]  # textbook: one, nothing
+  - ["naalai", "naalu", no_match]  # textbook: tomorrow, four
+  - ["moonu", "naalu", no_match]  # textbook: 3, 4
+  - ["vanakkam", "venum", no_match]  # textbook
+  - ["seri", "illa", no_match]  # textbook: right, no
+  - ["onbadhu", "enbadhu", no_match]  # textbook: 9, 80
+  - ["pathu", "padhinonnu", no_match]  # textbook: 10, 11
+
+known_gaps:
+  - { a: "பழம்", b: "பலம்", expect: no_match, why: "textbook; the ta-en rule zh to l reads pazham (fruit) as palam (strength)" }
+  - { a: "vazhi", b: "vali", expect: no_match, why: "textbook; the ta-en rule zh to l reads vazhi (way) as vali (pain)" }
+  - { a: "then", b: "ten", expect: no_match, why: "textbook; the ta-en rule th to t reads English then as ten, which is 10" }
+  - { a: "பாத்து", b: "பத்து", expect: no_match, why: "textbook; vowel length collapses, so paathu (having seen) reads pathu, which is 10" }
+  - { a: "பால்", b: "பல்", expect: no_match, why: "textbook; vowel length collapses, so paal (milk) reads pal (tooth)" }
+  - { a: "kaalai", b: "kalai", expect: no_match, why: "textbook; vowel length collapses, so kaalai (morning) reads kalai (art)" }
+  - { a: "kudu", b: "kuttu", expect: no_match, why: "textbook; ta-en voicing and the double-letter rule read kudu (give) and kuttu (sting) as kutu" }
+  - { a: "phone", b: "போன்", expect: match, why: "textbook; போன் reads pon, and a variant pon to fon would merge it with pon (gold)" }
+  - { a: "nandri", b: "nanri", expect: match, why: "textbook; the literary spelling nanri has no d for the ndr that ன்ற reads as, and the skeleton nnr is too short" }
+  - { a: "கடை", b: "கதை", expect: no_match, why: "textbook; ta-en reads d and dh as t, so kadai (shop) and kadhai (story) both read katai" }
+  - { a: "விடு", b: "வீடு", expect: no_match, why: "textbook; vowel length and ta-en voicing collapse, so vidu (leave) and veedu (house) both read vitu" }
+  - { a: "எடு", b: "எட்டு", expect: no_match, why: "textbook; ta-en voicing and the double-letter rule read edu (take) as ettu, which is 8" }
+  - { a: "பாட்டு", b: "பத்து", expect: no_match, why: "textbook; vowel length collapses and ta-en reads th as t, so paattu (song) reads 10" }
+  - { a: "tree", b: "three", expect: no_match, why: "textbook; the ta-en rule th to t reads English tree as three, which is 3" }
+  - { a: "seri", b: "saree", expect: no_match, why: "textbook; the variant seri to sari (சரி) also catches saree, the garment" }

@@ -6,6 +6,7 @@ from jinja2 import Environment, PackageLoader
 
 from parakh.report.diff import mark_misses
 from parakh.report.model import Report
+from parakh.score.normalize import LANGUAGES
 
 ENV = Environment(
     loader=PackageLoader("parakh.report", "templates"),
@@ -54,7 +55,12 @@ def _chart_bars(report: Report) -> list[dict[str, float | int | str]]:
 
 
 def render_html(report: Report) -> str:
-    turns = [{"turn": t, "words": mark_misses(t.reference, t.transcript)} for t in report.turns]
+    # A report from before M3b, or with a language the normaliser does not know, still
+    # renders, with the Hinglish rules it was scored with.
+    language = report.language if report.language in LANGUAGES else "hi-en"
+    turns = [
+        {"turn": t, "words": mark_misses(t.reference, t.transcript, language)} for t in report.turns
+    ]
     width = _BAR_GAP + max(len(report.turns), 1) * (_BAR_W + _BAR_GAP)
     return ENV.get_template("report.html.j2").render(
         r=report,

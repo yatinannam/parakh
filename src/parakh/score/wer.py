@@ -54,17 +54,17 @@ def strict_wer(ref: str, hyp: str) -> float | None:
     return float(jiwer.wer(" ".join(ref_tokens), " ".join(hyp_tokens)))
 
 
-def loose_wer(ref: str, hyp: str) -> float | None:
+def loose_wer(ref: str, hyp: str, language: str = "hi-en") -> float | None:
     """None when the reference is empty or the hypothesis holds Urdu script (EC-41)."""
-    hyp_norm = normalize(hyp)
+    hyp_norm = normalize(hyp, language)
     if hyp_norm.script_unsupported:
         return None
-    return _rate(normalize(ref).tokens, hyp_norm.tokens, tokens_equal)
+    return _rate(normalize(ref, language).tokens, hyp_norm.tokens, tokens_equal)
 
 
-def loose_cer(ref: str, hyp: str) -> float | None:
-    ref_chars = " ".join(normalize(ref).tokens)
-    hyp_chars = " ".join(normalize(hyp).tokens)
+def loose_cer(ref: str, hyp: str, language: str = "hi-en") -> float | None:
+    ref_chars = " ".join(normalize(ref, language).tokens)
+    hyp_chars = " ".join(normalize(hyp, language).tokens)
     return _rate(ref_chars, hyp_chars, lambda a, b: a == b)
 
 
@@ -89,19 +89,26 @@ def _no_transcript() -> WerSummary:
     return WerSummary(None, None, None, NO_TRANSCRIPT_REASON, [])
 
 
-def conversation_wer(refs: list[str], hyps_by_turn: list[list[str]]) -> WerSummary:
-    """Headline WER over the whole call, so VAD splitting or merging turns cancels out."""
+def conversation_wer(
+    refs: list[str], hyps_by_turn: list[list[str]], language: str = "hi-en"
+) -> WerSummary:
+    """Headline WER over the whole call, so VAD splitting or merging turns cancels out.
+
+    The language picks the normaliser's variants and number words (spec 6.7).
+    """
     joined = [" ".join(segments) for segments in hyps_by_turn]
     if not any(text.strip() for text in joined):
         return _no_transcript()
-    unsupported = [i for i, text in enumerate(joined) if normalize(text).script_unsupported]
+    unsupported = [
+        i for i, text in enumerate(joined) if normalize(text, language).script_unsupported
+    ]
     kept = [i for i in range(min(len(refs), len(joined))) if i not in unsupported]
     loose_ref = " ".join(refs[i] for i in kept)
     loose_hyp = " ".join(joined[i] for i in kept)
     return WerSummary(
         strict_wer=strict_wer(" ".join(refs), " ".join(joined)),
-        loose_wer=loose_wer(loose_ref, loose_hyp),
-        loose_cer=loose_cer(loose_ref, loose_hyp),
+        loose_wer=loose_wer(loose_ref, loose_hyp, language),
+        loose_cer=loose_cer(loose_ref, loose_hyp, language),
         reason=None,
         script_unsupported_turns=unsupported,
     )

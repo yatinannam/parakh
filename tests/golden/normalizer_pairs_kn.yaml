@@ -1,0 +1,159 @@
+# Golden pairs for the script-tolerant normaliser, Kannada-English (spec 6.7, language kn-en).
+#
+# Each pair is [a, b, group]. test_golden_kn compares a and b with normalize(x, "kn-en");
+# test_golden_counts_kn_ta reads the group. Groups:
+#   script    Kannada script against Roman
+#   loanword  English words written in Kannada script
+#   variant   Roman spelling variants
+#   number    number words, digit groups and Kannada numerals
+#   no_match  words that must stay distinct
+#
+# Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
+# not from a Whisper transcript. No Whisper transcript of Kannada exists yet; live runs add
+# observed pairs later.
+#
+# A pair the normaliser gets wrong goes to known_gaps with its reason; each known gap is an
+# xfail(strict=True) test, so fixing one fails the suite until the pair moves up. Never
+# delete a pair.
+
+must_match:
+  # --- script ---
+  - ["namaskara", "ನಮಸ್ಕಾರ", script]  # textbook
+  - ["naale", "ನಾಳೆ", script]  # textbook
+  - ["doctor rao", "ಡಾಕ್ಟರ್ ರಾವ್", script]  # textbook
+  - ["hattira", "ಹತ್ತಿರ", script]  # textbook
+  - ["beku", "ಬೇಕು", script]  # textbook
+  - ["beligge", "ಬೆಳಗ್ಗೆ", script]  # textbook
+  - ["gante", "ಗಂಟೆ", script]  # textbook
+  - ["gantege", "ಗಂಟೆಗೆ", script]  # textbook
+  - ["nanna", "ನನ್ನ", script]  # textbook
+  - ["haudu", "ಹೌದು", script]  # textbook
+  - ["sari", "ಸರಿ", script]  # textbook
+  - ["dhanyavaada", "ಧನ್ಯವಾದ", script]  # textbook
+  - ["illa", "ಇಲ್ಲ", script]  # textbook
+  - ["alla", "ಅಲ್ಲ", script]  # textbook
+  - ["sanje", "ಸಂಜೆ", script]  # textbook
+  - ["jotege", "ಜೊತೆಗೆ", script]  # textbook
+  - ["maga", "ಮಗ", script]  # textbook
+  - ["swalpa", "ಸ್ವಲ್ಪ", script]  # textbook
+  - ["aytu", "ಆಯ್ತು", script]  # textbook
+  - ["naadiddu", "ನಾಡಿದ್ದು", script]  # textbook
+  - ["ega", "ಈಗ", script]  # textbook
+  - ["nanage", "ನನಗೆ", script]  # textbook
+  - ["beda", "ಬೇಡ", script]  # textbook
+  - ["ivattu", "ಇವತ್ತು", script]  # textbook
+  - ["magalu", "ಮಗಳು", script]  # textbook
+  - ["bartini", "ಬರ್ತೀನಿ", script]  # textbook
+  - ["houdu sari", "ಹೌದು ಸರಿ", script]  # textbook
+  - ["dhanyavaadagalu", "ಧನ್ಯವಾದಗಳು", script]  # textbook
+  - ["ellide", "ಎಲ್ಲಿದೆ", script]  # textbook
+  - ["yaavaga", "ಯಾವಾಗ", script]  # textbook
+  - ["banni", "ಬನ್ನಿ", script]  # textbook
+  - ["hesaru", "ಹೆಸರು", script]  # textbook
+  - ["kannada", "ಕನ್ನಡ", script]  # textbook
+  - ["mane", "ಮನೆ", script]  # textbook
+  - ["ondu nimisha", "ಒಂದು ನಿಮಿಷ", script]  # textbook
+  - ["naale beligge", "ನಾಳೆ ಬೆಳಗ್ಗೆ", script]  # textbook
+  - ["namaskara naale doctor rao hattira appointment beku", "ನಮಸ್ಕಾರ ನಾಳೆ ಡಾಕ್ಟರ್ ರಾವ್ ಹತ್ತಿರ ಅಪಾಯಿಂಟ್ಮೆಂಟ್ ಬೇಕು", script]  # textbook
+  - ["haudu sari dhanyavaada bye", "ಹೌದು ಸರಿ ಧನ್ಯವಾದ ಬೈ", script]  # textbook
+  # --- loanword ---
+  - ["doctor", "ಡಾಕ್ಟರ್", loanword]  # textbook
+  - ["appointment", "ಅಪಾಯಿಂಟ್ಮೆಂಟ್", loanword]  # textbook
+  - ["appointment", "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್", loanword]  # textbook, with a zero-width non-joiner
+  - ["number", "ನಂಬರ್", loanword]  # textbook
+  - ["phone", "ಫೋನ್", loanword]  # textbook
+  - ["thank you", "ಥ್ಯಾಂಕ್ ಯೂ", loanword]  # textbook
+  - ["okay", "ಓಕೆ", loanword]  # textbook
+  - ["hello", "ಹಲೋ", loanword]  # textbook
+  - ["bye", "ಬೈ", loanword]  # textbook
+  - ["time", "ಟೈಮ್", loanword]  # textbook
+  - ["please", "ಪ್ಲೀಸ್", loanword]  # textbook
+  - ["correct", "ಕರೆಕ್ಟ್", loanword]  # textbook
+  - ["morning", "ಮಾರ್ನಿಂಗ್", loanword]  # textbook
+  - ["evening", "ಈವ್ನಿಂಗ್", loanword]  # textbook
+  - ["clinic", "ಕ್ಲಿನಿಕ್", loanword]  # textbook
+  - ["tomorrow", "ಟುಮಾರೋ", loanword]  # textbook
+  - ["booking", "ಬುಕಿಂಗ್", loanword]  # textbook
+  - ["hospital", "ಹಾಸ್ಪಿಟಲ್", loanword]  # textbook
+  - ["mobile", "ಮೊಬೈಲ್", loanword]  # textbook
+  - ["confirm", "ಕನ್ಫರ್ಮ್", loanword]  # textbook
+  # --- variant ---
+  - ["naale", "nale", variant]  # textbook
+  - ["namaskara", "namaskaara", variant]  # textbook
+  - ["dhanyavaada", "dhanyavada", variant]  # textbook
+  - ["aytu", "aitu", variant]  # textbook
+  - ["haudu", "howdu", variant]  # textbook
+  - ["haudu", "houdu", variant]  # textbook
+  - ["jotege", "jothege", variant]  # textbook
+  - ["beligge", "belagge", variant]  # textbook
+  - ["swalpa", "svalpa", variant]  # textbook
+  - ["gante", "ghante", variant]  # textbook
+  - ["ega", "eega", variant]  # textbook
+  - ["doctor rao", "Dr. Rao", variant]  # textbook
+  - ["okay", "ok", variant]  # textbook
+  - ["bye", "bai", variant]  # textbook
+  # --- number ---
+  - ["ondu", "1", number]  # textbook
+  - ["eradu", "2", number]  # textbook
+  - ["mooru", "3", number]  # textbook
+  - ["naalku", "4", number]  # textbook
+  - ["aidu", "5", number]  # textbook
+  - ["aaru", "6", number]  # textbook
+  - ["elu", "7", number]  # textbook
+  - ["entu", "8", number]  # textbook
+  - ["ombattu", "9", number]  # textbook
+  - ["ombhattu", "9", number]  # textbook
+  - ["sonne", "0", number]  # textbook
+  - ["hattu", "10", number]  # textbook
+  - ["hannondu", "11", number]  # textbook
+  - ["ippattu", "20", number]  # textbook
+  - ["nooru", "100", number]  # textbook
+  - ["ippattondu", "21", number]  # textbook
+  - ["ippattu ondu", "21", number]  # textbook
+  - ["ಇಪ್ಪತ್ತೊಂದು", "21", number]  # textbook
+  - ["moovattu", "30", number]  # textbook
+  - ["hadinaidu", "15", number]  # textbook
+  - ["ತೊಂಬತ್ತೊಂಬತ್ತು", "99", number]  # textbook
+  - ["ಒಂಬತ್ತು ಒಂಬತ್ತು ಒಂದು ಆರು", "9916", number]  # textbook
+  - ["ನನ್ನ ನಂಬರ್ ಒಂಬತ್ತು ಒಂಬತ್ತು ಒಂದು ಆರು, ನಾಲ್ಕು ಸೊನ್ನೆ ಮೂರು, ಎರಡು ಏಳು ಐದು.", "ನನ್ನ ನಂಬರ್ 9916403275", number]  # textbook
+  - ["nanna number elu sonne eradu, eradu naalku aidu, aaru entu ondu ombhattu.", "nanna number 7022456819", number]  # textbook
+  - ["೯೯೧೬೪೦೩೨೭೫", "9916403275", number]  # textbook
+  - ["double nine", "99", number]  # textbook
+  - ["ಡಬಲ್ ಒಂಬತ್ತು", "99", number]  # textbook
+  - ["nine six zero six, seven one eight, two five four", "9606718254", number]  # textbook
+  - ["naalku gante ge", "4 gante ge", number]  # textbook
+  - ["ನೈನ್ ಎಯ್ಟ್ ಫೈವ್", "985", number]  # textbook
+  - ["aivattu", "50", number]  # textbook
+
+must_not_match:
+  - ["ಬೇಕು", "ಬೇಡ", no_match]  # textbook: want, don't want
+  - ["beku", "beda", no_match]  # textbook
+  - ["naale", "ivattu", no_match]  # textbook: tomorrow, today
+  - ["beligge", "sanje", no_match]  # textbook: morning, evening
+  - ["ondu", "eradu", no_match]  # textbook: 1, 2
+  - ["ಒಂದು", "ಎರಡು", no_match]  # textbook
+  - ["illa", "alla", no_match]  # textbook: no, is not
+  - ["ಇಲ್ಲ", "ಅಲ್ಲ", no_match]  # textbook
+  - ["naale", "naadiddu", no_match]  # textbook: tomorrow, day after
+  - ["hattu", "hattira", no_match]  # textbook: ten, near
+  - ["maga", "magalu", no_match]  # textbook: son, daughter
+  - ["ಮಗ", "ಮಗಳು", no_match]  # textbook
+  - ["entu", "ondu", no_match]  # textbook: 8, 1
+  - ["aaru", "yaaru", no_match]  # textbook: six, who
+  - ["sari", "sorry", no_match]  # textbook: right, sorry
+  - ["nanna", "ninna", no_match]  # textbook: my, your
+  - ["mooru", "nooru", no_match]  # textbook: 3, 100
+  - ["naalku", "naale", no_match]  # textbook: 4, tomorrow
+  - ["ombattu", "embattu", no_match]  # textbook: 9, 80
+  - ["ippattu", "eppattu", no_match]  # textbook: 20, 70
+  - ["ondu", "1 1", no_match]  # textbook
+
+known_gaps:
+  - { a: "gante ge", b: "ಗಂಟೆಗೆ", expect: match, why: "textbook; the Roman reference writes the case suffix ge apart, and words are compared one by one" }
+  - { a: "beku", b: "bekku", expect: no_match, why: "textbook; the double-letter rule reads bekku (cat) as beku (want)" }
+  - { a: "sorry", b: "ಸಾರಿ", expect: match, why: "textbook; ಸಾರಿ reads sari, the key of ಸರಿ (right), so a variant to sori would merge them" }
+  - { a: "early", b: "ಅರ್ಲಿ", expect: match, why: "textbook; ಅರ್ಲಿ reads arli, and the consonant skeleton rl is too short for the fallback" }
+  - { a: "ten thirty", b: "ಟೆನ್ ಥರ್ಟಿ", expect: match, why: "textbook; English tens in Kannada script are not number words, so ಥರ್ಟಿ stays tharti" }
+  - { a: "ellu", b: "elu", expect: no_match, why: "textbook; the double-letter rule reads ellu (sesame) as elu, which is 7" }
+  - { a: "ಬಾಯಿ", b: "ಬೈ", expect: no_match, why: "textbook; y between two different vowels drops, so ಬಾಯಿ (mouth) reads bai, the same as ಬೈ (bye)" }
+  - { a: "ಕಾಲು", b: "ಕಲ್ಲು", expect: no_match, why: "textbook; vowel length and double letters collapse, so ಕಾಲು (leg) and ಕಲ್ಲು (stone) both read kalu" }

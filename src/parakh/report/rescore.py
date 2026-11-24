@@ -24,11 +24,15 @@ def rescore_report(report: Report, scenario: Scenario) -> Report:
                 update={
                     "reference": ref,
                     "strict_wer": strict_wer(ref, turn.transcript) if scored else None,
-                    "loose_wer": loose_wer(ref, turn.transcript) if scored else None,
+                    "loose_wer": loose_wer(ref, turn.transcript, scenario.language)
+                    if scored
+                    else None,
                 }
             )
         )
-    wer = conversation_wer([t.reference for t in turns], [[t.transcript] for t in turns])
+    wer = conversation_wer(
+        [t.reference for t in turns], [[t.transcript] for t in turns], scenario.language
+    )
     metrics = report.metrics.model_copy(
         update={
             "strict_wer": wer.strict_wer,

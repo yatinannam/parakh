@@ -54,3 +54,12 @@ def test_rescore_leaves_unreached_and_extra_turns(tmp_path: Path) -> None:
     out = rescore_report(report(unreached, extra), _scenario(tmp_path, "a b"))
     assert out.turns[0].loose_wer is None
     assert out.turns[1] == extra
+
+
+def test_rescore_uses_scenario_language(tmp_path: Path) -> None:
+    heard = report(turn(0, say="ondu eradu", heard="1 2"))
+    kannada = rescore_report(heard, _scenario(tmp_path, "ondu eradu", lang="kn-en"))
+    assert kannada.turns[0].loose_wer == 0.0
+    assert kannada.metrics.loose_wer == 0.0
+    hinglish = rescore_report(heard, _scenario(tmp_path, "ondu eradu"))
+    assert hinglish.turns[0].loose_wer == 1.0
