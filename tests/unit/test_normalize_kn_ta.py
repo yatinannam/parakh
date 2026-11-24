@@ -130,12 +130,14 @@ def test_tamil_letters_romanise(word: str, roman: str) -> None:
 @pytest.mark.parametrize(
     "word,roman",
     [
-        # A stop is voiced after a nasal: mb, nd, ng, nj (and nd after the retroflex nasal).
+        # A stop is voiced after a nasal: mb, ndh (dental), ng, nj, nd (retroflex).
         ("ரொம்ப", "romba"),
-        ("குழந்தை", "kuzhandai"),
+        ("குழந்தை", "kuzhandhai"),
+        ("வந்து", "vandhu"),
         ("சாயங்காலம்", "saayangaalam"),
         ("கொஞ்சம்", "konjam"),
         ("வேண்டாம்", "vendaam"),
+        ("வண்டு", "vandu"),
         # A doubled stop is unvoiced.
         ("கிட்ட", "kitta"),
         ("இப்போ", "ippo"),
@@ -231,8 +233,12 @@ def test_roman_fillers_dropped_in_every_language(language: str) -> None:
 
 
 def test_ta_voicing_collapse() -> None:
-    assert normalize("bagavan dosai thambi", "ta-en").tokens == ["pakavan", "tosai", "tampi"]
-    assert normalize("pazham", "ta-en").tokens == ["palam"]
+    # Each series collapses on its own: retroflex d to t, dental dh to th, b to p, g to k.
+    assert normalize("bagavan dosai thambi", "ta-en").tokens == ["pakavan", "tosai", "thampi"]
+    assert normalize("kadai kadhai kathai", "ta-en").tokens == ["katai", "kathai", "kathai"]
+    assert normalize("vandu vandhu vanthu", "ta-en").tokens == ["vantu", "vanthu", "vanthu"]
+    # zh is kept apart from l (the shared rules read its z as j).
+    assert normalize("pazham palam", "ta-en").tokens == ["pajham", "palam"]
     assert normalize("bhayam", "ta-en").tokens == ["payam"]
     assert normalize("bagavan", "kn-en").tokens == ["bagavan"]
 

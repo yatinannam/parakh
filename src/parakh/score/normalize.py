@@ -70,7 +70,7 @@ _FILLER_KEYS = frozenset({"um", "uh", "hm"})
 
 _PERSO_ARABIC = re.compile("[؀-ۿ]")
 _VOWELS = "aeiou"
-# ta-en: b to p, d to t, g to k (after the digraphs dh, th, zh, sh, ch and bh).
+# ta-en: b to p, d to t, g to k (after the digraphs bh, sh and ch). dh becomes th this way.
 _DEVOICE = str.maketrans("bdg", "ptk")
 
 
@@ -109,18 +109,18 @@ def _spell(token: str) -> str:
 def _devoice(token: str) -> str:
     """The ta-en voicing collapse.
 
-    Tamil script does not mark voicing, so Roman spellings of one word differ there: dh and
-    th give t, zh gives l, sh and ch give s, then b, d and g give p, t and k. bh gives p,
+    Tamil script does not mark voicing, so Roman spellings of one word differ there. Each
+    series collapses on its own: b and bh give p, g gives k, sh and ch give s, the retroflex
+    d gives t, and the dental dh gives th. th, t and zh stay, so the dental and retroflex
+    stops (கதை, கடை) and ழ and ல (பழம், பலம்) are never merged (spec 6.7). bh is listed,
     because the b rule alone would make ph, which the spelling rules read as f.
     """
-    token = re.sub("[dt]h", "t", token)
-    token = token.replace("zh", "l").replace("sh", "s").replace("ch", "s").replace("bh", "p")
+    token = token.replace("bh", "p").replace("sh", "s").replace("ch", "s")
     return token.translate(_DEVOICE)
 
 
 def _spell_ta(token: str) -> str:
-    # The collapse runs before the shared rules too, because they read the z of zh as j.
-    return _devoice(_spell(_devoice(token)))
+    return _devoice(_spell(token))
 
 
 @lru_cache(maxsize=16384)

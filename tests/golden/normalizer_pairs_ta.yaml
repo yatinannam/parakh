@@ -8,8 +8,10 @@
 #   number    number words, digit groups and Tamil numerals
 #   no_match  words that must stay distinct
 #
-# ta-en keys collapse voicing (b to p, d to t, g to k, dh and th to t), zh to l, and sh
-# and ch to s, because Tamil script does not mark voicing and Roman spellings differ there.
+# ta-en keys collapse voicing within each series, because Tamil script does not mark voicing
+# and Roman spellings differ there: b and bh to p, g to k, d to t (retroflex), dh to th
+# (dental), sh and ch to s. th and t stay apart, and so do zh and l (controller ruling R6,
+# spec 6.7: distinct words are never merged).
 #
 # Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
 # not from a Whisper transcript. No Whisper transcript of Tamil exists yet; live runs add
@@ -89,7 +91,6 @@ must_match:
   - ["kaalaila", "kalaila", variant]  # textbook
   - ["paiyanukku", "payyanukku", variant]  # textbook
   - ["doctor rao", "Dr. Rao", variant]  # textbook
-  - ["thambi", "tambi", variant]  # textbook
   - ["inniki", "innikku", variant]  # textbook
   - ["illai", "illa", variant]  # textbook
   - ["okay", "ok", variant]  # textbook
@@ -150,20 +151,22 @@ must_not_match:
   - ["seri", "illa", no_match]  # textbook: right, no
   - ["onbadhu", "enbadhu", no_match]  # textbook: 9, 80
   - ["pathu", "padhinonnu", no_match]  # textbook: 10, 11
+  - ["பழம்", "பலம்", no_match]  # textbook: fruit, strength (was a known gap before R6)
+  - ["vazhi", "vali", no_match]  # textbook: way, pain (was a known gap before R6)
+  - ["then", "ten", no_match]  # textbook (was a known gap before R6)
+  - ["கடை", "கதை", no_match]  # textbook: shop, story (was a known gap before R6)
+  - ["பாட்டு", "பத்து", no_match]  # textbook: song, 10 (was a known gap before R6)
+  - ["tree", "three", no_match]  # textbook (was a known gap before R6)
+  - ["வந்து", "வண்டு", no_match]  # textbook: having come, beetle (dental against retroflex)
 
 known_gaps:
-  - { a: "பழம்", b: "பலம்", expect: no_match, why: "textbook; the ta-en rule zh to l reads pazham (fruit) as palam (strength)" }
-  - { a: "vazhi", b: "vali", expect: no_match, why: "textbook; the ta-en rule zh to l reads vazhi (way) as vali (pain)" }
-  - { a: "then", b: "ten", expect: no_match, why: "textbook; the ta-en rule th to t reads English then as ten, which is 10" }
   - { a: "பாத்து", b: "பத்து", expect: no_match, why: "textbook; vowel length collapses, so paathu (having seen) reads pathu, which is 10" }
   - { a: "பால்", b: "பல்", expect: no_match, why: "textbook; vowel length collapses, so paal (milk) reads pal (tooth)" }
   - { a: "kaalai", b: "kalai", expect: no_match, why: "textbook; vowel length collapses, so kaalai (morning) reads kalai (art)" }
   - { a: "kudu", b: "kuttu", expect: no_match, why: "textbook; ta-en voicing and the double-letter rule read kudu (give) and kuttu (sting) as kutu" }
   - { a: "phone", b: "போன்", expect: match, why: "textbook; போன் reads pon, and a variant pon to fon would merge it with pon (gold)" }
   - { a: "nandri", b: "nanri", expect: match, why: "textbook; the literary spelling nanri has no d for the ndr that ன்ற reads as, and the skeleton nnr is too short" }
-  - { a: "கடை", b: "கதை", expect: no_match, why: "textbook; ta-en reads d and dh as t, so kadai (shop) and kadhai (story) both read katai" }
   - { a: "விடு", b: "வீடு", expect: no_match, why: "textbook; vowel length and ta-en voicing collapse, so vidu (leave) and veedu (house) both read vitu" }
   - { a: "எடு", b: "எட்டு", expect: no_match, why: "textbook; ta-en voicing and the double-letter rule read edu (take) as ettu, which is 8" }
-  - { a: "பாட்டு", b: "பத்து", expect: no_match, why: "textbook; vowel length collapses and ta-en reads th as t, so paattu (song) reads 10" }
-  - { a: "tree", b: "three", expect: no_match, why: "textbook; the ta-en rule th to t reads English tree as three, which is 3" }
   - { a: "seri", b: "saree", expect: no_match, why: "textbook; the variant seri to sari (சரி) also catches saree, the garment" }
+  - { a: "thambi", b: "tambi", expect: match, why: "textbook; Roman t for the dental த reads as the retroflex series, which ta-en keeps apart from th (R6), and the skeletons thmp and tmp differ" }

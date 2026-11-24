@@ -4,14 +4,16 @@ indic-transliteration's Tamil output is unusable for scoring (எனக்கு
 left as is), so Parakh romanises Tamil itself (D19). Tamil script does not mark voicing, so a
 stop takes its sound from context, by the common pronunciation rules:
 
-- after a nasal it is voiced: ம்ப mb, ந்த nd, ங்க ng, ஞ்ச nj, ண்ட nd;
+- after a nasal it is voiced: ம்ப mb, ந்த ndh, ங்க ng, ஞ்ச nj, ண்ட nd;
 - doubled, or at word start, it is unvoiced: க்க kk, ட்ட tt, த்த tth, at word start த th;
 - single between vowels it softens: க g, ச s, ட d, த dh, ப b;
 - otherwise it is unvoiced.
 
-ற்ற is tr and ன்ற is ndr; ழ is zh, ள is l, ன and ண are n; ஃ before ப is f. Long and short
-e and o both give e and o, because the loose key would read ee and oo as i and u.
-Characters outside the table (numerals, symbols, a stray virama) give nothing.
+The dental த always carries an h (th, dh) and the retroflex ட never does (t, d), so the two
+stay apart (வந்து vandhu, having come; வண்டு vandu, beetle). ற்ற is tr and ன்ற is ndr; ழ is zh,
+ள is l, ன and ண are n; ஃ before ப is f. Long and short e and o both give e and o, because
+the loose key would read ee and oo as i and u. Characters outside the table (numerals,
+symbols, a stray virama) give nothing.
 """
 
 _VOWELS = {
@@ -29,7 +31,7 @@ _STOPS = {
     "க": ("k", "g", "g"),
     "ச": ("ch", "s", "j"),
     "ட": ("t", "d", "d"),
-    "த": ("th", "dh", "d"),
+    "த": ("th", "dh", "dh"),
     "ப": ("p", "b", "b"),
 }
 _NASALS = {"ங": "ng", "ஞ": "nj", "ண": "n", "ந": "n", "ம": "m", "ன": "n"}

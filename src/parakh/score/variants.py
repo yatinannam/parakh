@@ -40,4 +40,5 @@ TAMIL_VARIANTS: dict[str, str] = {
     "ilai": "ila",  # இல்லை, illa
     "iniki": "iniku",  # inniki, இன்னிக்கு
     "inaiku": "iniku",  # இன்னைக்கு
+    "tamil": "thamijh",  # the English name; தமிழ், thamizh (zh reads jh)
 }
