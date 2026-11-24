@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-book-kannada-01
+title: "Book Dr. Rao for naale 10:00 (Kannada-English)"
+language: kn-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naale (2026-11-20) at 10:00 and confirms the phone number 9739201846."
+caller:
+  voice: kn-IN-GaganNeural
+  rate: "+0%"
+turns:
+  - say: "Namaskara, naale Dr. Rao jotege appointment beku."
+    ref: "namaskara naale doctor rao jotege appointment beku"
+  - say: "Naale bele hattu gante ge."
+    ref: "naale bele hattu gante ge"
+  - say: "Nanna number nine seven three nine, two zero one, eight four six."
+    ref: "nanna number 9739201846"
+  - say: "Haan, sari. Thank you, bye."
+    ref: "haan sari thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

@@ -1,0 +1,22 @@
+schema_version: 1
+id: clinic-bargein-kannada-01
+title: "Interrupt the read-back to correct the time (Kannada-English)"
+language: kn-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naale (2026-11-20) at 10:30 after the caller interrupts the read-back to correct the time from 10:00, and confirms the phone number 9606718254."
+caller:
+  voice: kn-IN-GaganNeural
+  rate: "+0%"
+turns:
+  - say: "Namaskara, naale Dr. Rao jotege hattu gante ge appointment beku."
+    ref: "namaskara naale doctor rao jotege hattu gante ge appointment beku"
+  - say: "Nanna number nine six zero six, seven one eight, two five four."
+    ref: "nanna number 9606718254"
+  - say: "Illa illa, hattu gante alla, ten thirty beku."
+    ref: "illa illa hattu gante alla ten thirty beku"
+    barge_in: { after_agent_ms: 1500 }
+  - say: "Haan, ega sari. Thank you, bye."
+    ref: "haan ega sari thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

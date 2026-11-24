@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-book-tamil-01
+title: "Book Dr. Rao for naalaikku 10:00 (Tamil-English)"
+language: ta-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naalaikku (2026-11-20) at 10:00 and confirms the phone number 9840123567."
+caller:
+  voice: ta-IN-ValluvarNeural
+  rate: "+0%"
+turns:
+  - say: "Vanakkam, naalaikku Dr. Rao kitta appointment venum."
+    ref: "vanakkam naalaikku doctor rao kitta appointment venum"
+  - say: "Naalaikku kaalaila pathu manikku."
+    ref: "naalaikku kaalaila pathu manikku"
+  - say: "En number nine eight four zero, one two three, five six seven."
+    ref: "en number 9840123567"
+  - say: "Seri, romba nandri. Bye."
+    ref: "seri romba nandri bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

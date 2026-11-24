@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-script-kannada-01
+title: "Kannada script caller (Kannada-English)"
+language: kn-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naale (2026-11-20) at 10:00 and confirms the phone number 9916403275, spoken in Kannada script text."
+caller:
+  voice: kn-IN-GaganNeural
+  rate: "+0%"
+turns:
+  - say: "ನಮಸ್ಕಾರ, ನಾಳೆ ಡಾಕ್ಟರ್ ರಾವ್ ಹತ್ತಿರ ಅಪಾಯಿಂಟ್ಮೆಂಟ್ ಬೇಕು."
+    ref: "ನಮಸ್ಕಾರ ನಾಳೆ ಡಾಕ್ಟರ್ ರಾವ್ ಹತ್ತಿರ ಅಪಾಯಿಂಟ್ಮೆಂಟ್ ಬೇಕು"
+  - say: "ನಾಳೆ ಬೆಳಗ್ಗೆ ಹತ್ತು ಗಂಟೆಗೆ."
+    ref: "ನಾಳೆ ಬೆಳಗ್ಗೆ ಹತ್ತು ಗಂಟೆಗೆ"
+  - say: "ನನ್ನ ನಂಬರ್ ಒಂಬತ್ತು ಒಂಬತ್ತು ಒಂದು ಆರು, ನಾಲ್ಕು ಸೊನ್ನೆ ಮೂರು, ಎರಡು ಏಳು ಐದು."
+    ref: "ನನ್ನ ನಂಬರ್ 9916403275"
+  - say: "ಹೌದು, ಸರಿ. ಧನ್ಯವಾದ, ಬೈ."
+    ref: "ಹೌದು ಸರಿ ಧನ್ಯವಾದ ಬೈ"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

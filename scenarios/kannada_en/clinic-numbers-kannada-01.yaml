@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-numbers-kannada-01
+title: "Phone number in Kannada number words (Kannada-English)"
+language: kn-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naale (2026-11-20) at 11:00 and confirms the phone number 7022456819, said in Kannada number words."
+caller:
+  voice: kn-IN-GaganNeural
+  rate: "+0%"
+turns:
+  - say: "Namaskara, naale Dr. Rao jotege appointment beku."
+    ref: "namaskara naale doctor rao jotege appointment beku"
+  - say: "Naale hannondu gante ge."
+    ref: "naale hannondu gante ge"
+  - say: "Nanna number elu sonne eradu, eradu naalku aidu, aaru entu ondu ombhattu."
+    ref: "nanna number 7022456819"
+  - say: "Sari, thank you, bye."
+    ref: "sari thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

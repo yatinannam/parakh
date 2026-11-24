@@ -1,0 +1,22 @@
+schema_version: 1
+id: clinic-bargein-tamil-01
+title: "Interrupt the read-back to correct the time (Tamil-English)"
+language: ta-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naalaikku (2026-11-20) at 10:30 after the caller interrupts the read-back to correct the time from 10:00, and confirms the phone number 9003567812."
+caller:
+  voice: ta-IN-ValluvarNeural
+  rate: "+0%"
+turns:
+  - say: "Vanakkam, naalaikku Dr. Rao kitta pathu manikku appointment venum."
+    ref: "vanakkam naalaikku doctor rao kitta pathu manikku appointment venum"
+  - say: "En number nine zero zero three, five six seven, eight one two."
+    ref: "en number 9003567812"
+  - say: "Illa illa, pathu manikku illa, ten thirty venum."
+    ref: "illa illa pathu manikku illa ten thirty venum"
+    barge_in: { after_agent_ms: 1500 }
+  - say: "Seri, ippo correct. Thank you, bye."
+    ref: "seri ippo correct thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

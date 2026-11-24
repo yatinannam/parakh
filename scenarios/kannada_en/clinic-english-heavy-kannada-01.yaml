@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-english-heavy-kannada-01
+title: "Mostly English with Kannada fillers (Kannada-English)"
+language: kn-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naale (2026-11-20) at 09:30 and confirms the phone number 8095127364."
+caller:
+  voice: en-IN-PrabhatNeural
+  rate: "+0%"
+turns:
+  - say: "Hi, I need an appointment with Dr. Rao tomorrow, swalpa early if possible."
+    ref: "hi i need an appointment with doctor rao tomorrow swalpa early if possible"
+  - say: "Nine thirty in the morning, please."
+    ref: "nine thirty in the morning please"
+  - say: "My number is eight zero nine five, one two seven, three six four."
+    ref: "my number is 8095127364"
+  - say: "Aytu, that is correct. Thank you, bye."
+    ref: "aytu that is correct thank you bye"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }

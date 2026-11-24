@@ -1,0 +1,21 @@
+schema_version: 1
+id: clinic-script-tamil-01
+title: "Tamil script caller (Tamil-English)"
+language: ta-en
+domain: clinic
+clock: "2026-11-19T10:00:00+05:30"
+agent_speaks_first: true
+goal: "A successful call books Dr. Rao for naalaikku (2026-11-20) at 10:00 and confirms the phone number 9444285713, spoken in Tamil script text."
+caller:
+  voice: ta-IN-ValluvarNeural
+  rate: "+0%"
+turns:
+  - say: "வணக்கம், நாளைக்கு டாக்டர் ராவ் கிட்ட அப்பாயிண்ட்மென்ட் வேணும்."
+    ref: "வணக்கம் நாளைக்கு டாக்டர் ராவ் கிட்ட அப்பாயிண்ட்மென்ட் வேணும்"
+  - say: "நாளைக்கு காலைல பத்து மணிக்கு."
+    ref: "நாளைக்கு காலைல பத்து மணிக்கு"
+  - say: "என் நம்பர் ஒன்பது நான்கு நான்கு நான்கு, இரண்டு எட்டு ஐந்து, ஏழு ஒன்று மூன்று."
+    ref: "என் நம்பர் 9444285713"
+  - say: "சரி, ரொம்ப நன்றி, பை."
+    ref: "சரி ரொம்ப நன்றி பை"
+limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
