@@ -24,6 +24,8 @@ KANNADA_VARIANTS: dict[str, str] = {
     "jothe": "jote",
     "ghante": "gante",  # ಗಂಟೆ
     "ega": "iga",  # ಈಗ, eega
+    "ayar": "ier",  # ಅಯ್ಯರ್ for the name Iyer
+    "aiar": "ier",  # ಐಯರ್
 }
 TAMIL_VARIANTS: dict[str, str] = {
     "rav": "rao",  # ராவ்
@@ -41,4 +43,6 @@ TAMIL_VARIANTS: dict[str, str] = {
     "iniki": "iniku",  # inniki, இன்னிக்கு
     "inaiku": "iniku",  # இன்னைக்கு
     "tamil": "thamijh",  # the English name; தமிழ், thamizh (zh reads jh)
+    "ayar": "ier",  # அய்யர் for the name Iyer
+    "aiar": "ier",  # ஐயர்
 }

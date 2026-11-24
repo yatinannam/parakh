@@ -141,8 +141,9 @@ HINDI: dict[int, tuple[str, ...]] = {
     99: ("ninyaanve", "ninyanve", "निन्यानवे"),
 }
 
-# Kannada 0-19 and 100, value -> spellings (Roman, then Kannada script). The tens are apart,
-# because a tens word followed by a unit word combines: ippattu ondu is 21.
+# Kannada 0-19, value -> spellings (Roman, then Kannada script). The tens are apart, because
+# a tens word followed by a unit word combines: ippattu ondu is 21. nooru (100) is a hundred
+# word, like sau: nooru aidu is 105 and eradu nooru is 200.
 KANNADA: dict[int, tuple[str, ...]] = {
     0: ("sonne", "ಸೊನ್ನೆ"),
     1: ("ondu", "ಒಂದು"),
@@ -164,7 +165,6 @@ KANNADA: dict[int, tuple[str, ...]] = {
     17: ("hadinelu", "ಹದಿನೇಳು"),
     18: ("hadinentu", "ಹದಿನೆಂಟು"),
     19: ("hattombattu", "ಹತ್ತೊಂಬತ್ತು"),
-    100: ("nooru", "ನೂರು"),
 }
 KANNADA_TENS: dict[int, tuple[str, ...]] = {
     20: ("ippattu", "ippathu", "ಇಪ್ಪತ್ತು"),
@@ -177,8 +177,8 @@ KANNADA_TENS: dict[int, tuple[str, ...]] = {
     90: ("tombattu", "ತೊಂಬತ್ತು"),
 }
 
-# Tamil 0-19 and 100: Roman, then Tamil script, colloquial forms (onnu, rendu) beside the
-# written ones (ondru, irandu).
+# Tamil 0-19: Roman, then Tamil script, colloquial forms (onnu, rendu) beside the written
+# ones (ondru, irandu). nooru (100) is a hundred word, as in Kannada.
 TAMIL: dict[int, tuple[str, ...]] = {
     0: ("poojyam", "poojiyam", "பூஜ்யம்", "பூஜ்ஜியம்"),
     1: ("onnu", "ondru", "onru", "ஒன்று", "ஒண்ணு"),
@@ -200,7 +200,6 @@ TAMIL: dict[int, tuple[str, ...]] = {
     17: ("padhinezhu", "பதினேழு"),
     18: ("padhinettu", "பதினெட்டு"),
     19: ("patthonbadhu", "பத்தொன்பது"),
-    100: ("nooru", "நூறு"),
 }
 TAMIL_TENS: dict[int, tuple[str, ...]] = {
     20: ("irubadhu", "இருபது"),
@@ -311,7 +310,7 @@ SPELLINGS: dict[str, Spellings] = {
         units=_units_of(_KANNADA_WORDS),
         double=("double", "ಡಬಲ್"),
         triple=("triple", "ಟ್ರಿಪಲ್"),
-        hundred=("hundred",),
+        hundred=("hundred", "nooru", "nuru", "ನೂರು"),
     ),
     "ta-en": Spellings(
         words=[*_TAMIL_WORDS, *_compounds(TAMIL_TENS, TAMIL, 0x0B80, _tamil_join)],
@@ -319,6 +318,6 @@ SPELLINGS: dict[str, Spellings] = {
         units=_units_of(_TAMIL_WORDS),
         double=("double", "டபுள்"),
         triple=("triple", "ட்ரிபிள்"),
-        hundred=("hundred",),
+        hundred=("hundred", "nooru", "nuru", "நூறு"),
     ),
 }

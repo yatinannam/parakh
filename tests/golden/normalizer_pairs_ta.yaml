@@ -10,8 +10,10 @@
 #
 # ta-en keys collapse voicing within each series, because Tamil script does not mark voicing
 # and Roman spellings differ there: b and bh to p, g to k, d to t (retroflex), dh to th
-# (dental), sh and ch to s. th and t stay apart, and so do zh and l (controller ruling R6,
-# spec 6.7: distinct words are never merged).
+# (dental), sh and ch to s. th and t stay apart, and so do zh and l (controller ruling R6).
+# The collapse does merge one class of distinct words: English words that differ only in
+# voicing (do and to, bill and pill, drug and truck). Those are known gaps (ruling R8), as is
+# ள read as l, like ல (ruling R9).
 #
 # Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
 # not from a Whisper transcript. No Whisper transcript of Tamil exists yet; live runs add
@@ -57,6 +59,8 @@ must_match:
   - ["akka", "அக்கா", script]  # textbook
   - ["amma", "அம்மா", script]  # textbook
   - ["vazhi", "வழி", script]  # textbook
+  - ["iyer", "ஐயர்", script]  # textbook
+  - ["iyer", "அய்யர்", script]  # textbook
   - ["seri romba nandri bye", "சரி ரொம்ப நன்றி பை", script]  # textbook
   - ["vanakkam naalaikku doctor rao kitta appointment venum", "வணக்கம் நாளைக்கு டாக்டர் ராவ் கிட்ட அப்பாயிண்ட்மென்ட் வேணும்", script]  # textbook
   # --- loanword ---
@@ -80,6 +84,8 @@ must_match:
   - ["mobile", "மொபைல்", loanword]  # textbook
   - ["tomorrow", "டுமாரோ", loanword]  # textbook
   - ["confirm", "கன்ஃபர்ம்", loanword]  # textbook
+  - ["doctor iyer", "டாக்டர் ஐயர்", loanword]  # textbook
+  - ["doctor iyer", "டாக்டர் அய்யர்", loanword]  # textbook
   # --- variant ---
   - ["vanakkam", "vanakam", variant]  # textbook
   - ["naalaikku", "nalaiku", variant]  # textbook
@@ -129,6 +135,11 @@ must_match:
   - ["டபுள் நான்கு", "44", number]  # textbook
   - ["nine eight four zero, one two three, five six seven", "9840123567", number]  # textbook
   - ["நைன் எய்ட் ஃபைவ்", "985", number]  # textbook
+  - ["nooru anju", "105", number]  # textbook
+  - ["rendu nooru", "200", number]  # textbook
+  - ["nooru irubadhu", "120", number]  # textbook
+  - ["நூறு அஞ்சு", "105", number]  # textbook
+  - ["இரண்டு நூறு", "200", number]  # textbook
 
 must_not_match:
   - ["venum", "vendaam", no_match]  # textbook: want, don't want
@@ -170,3 +181,7 @@ known_gaps:
   - { a: "எடு", b: "எட்டு", expect: no_match, why: "textbook; ta-en voicing and the double-letter rule read edu (take) as ettu, which is 8" }
   - { a: "seri", b: "saree", expect: no_match, why: "textbook; the variant seri to sari (சரி) also catches saree, the garment" }
   - { a: "thambi", b: "tambi", expect: match, why: "textbook; Roman t for the dental த reads as the retroflex series, which ta-en keeps apart from th (R6), and the skeletons thmp and tmp differ" }
+  - { a: "do", b: "to", expect: no_match, why: "textbook; the ta-en voicing collapse (d to t) merges English words that differ only in voicing (R8)" }
+  - { a: "bill", b: "pill", expect: no_match, why: "textbook; the ta-en voicing collapse (b to p) merges English words that differ only in voicing (R8)" }
+  - { a: "drug", b: "truck", expect: no_match, why: "textbook; the ta-en voicing collapse (d to t, g to k) merges English words that differ only in voicing (R8)" }
+  - { a: "பள்ளி", b: "பல்லி", expect: no_match, why: "textbook; ள and ல both read l, so பள்ளி (school) and பல்லி (lizard) both read pali (R9)" }

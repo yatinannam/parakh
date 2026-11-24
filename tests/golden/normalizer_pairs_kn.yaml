@@ -54,6 +54,8 @@ must_match:
   - ["mane", "ಮನೆ", script]  # textbook
   - ["ondu nimisha", "ಒಂದು ನಿಮಿಷ", script]  # textbook
   - ["naale beligge", "ನಾಳೆ ಬೆಳಗ್ಗೆ", script]  # textbook
+  - ["iyer", "ಅಯ್ಯರ್", script]  # textbook
+  - ["iyer", "ಐಯರ್", script]  # textbook
   - ["namaskara naale doctor rao hattira appointment beku", "ನಮಸ್ಕಾರ ನಾಳೆ ಡಾಕ್ಟರ್ ರಾವ್ ಹತ್ತಿರ ಅಪಾಯಿಂಟ್ಮೆಂಟ್ ಬೇಕು", script]  # textbook
   - ["haudu sari dhanyavaada bye", "ಹೌದು ಸರಿ ಧನ್ಯವಾದ ಬೈ", script]  # textbook
   # --- loanword ---
@@ -77,6 +79,8 @@ must_match:
   - ["hospital", "ಹಾಸ್ಪಿಟಲ್", loanword]  # textbook
   - ["mobile", "ಮೊಬೈಲ್", loanword]  # textbook
   - ["confirm", "ಕನ್ಫರ್ಮ್", loanword]  # textbook
+  - ["doctor iyer", "ಡಾಕ್ಟರ್ ಅಯ್ಯರ್", loanword]  # textbook
+  - ["doctor iyer", "ಡಾಕ್ಟರ್ ಐಯರ್", loanword]  # textbook
   # --- variant ---
   - ["naale", "nale", variant]  # textbook
   - ["namaskara", "namaskaara", variant]  # textbook
@@ -124,6 +128,11 @@ must_match:
   - ["naalku gante ge", "4 gante ge", number]  # textbook
   - ["ನೈನ್ ಎಯ್ಟ್ ಫೈವ್", "985", number]  # textbook
   - ["aivattu", "50", number]  # textbook
+  - ["nooru aidu", "105", number]  # textbook
+  - ["eradu nooru", "200", number]  # textbook
+  - ["nooru ippattu", "120", number]  # textbook
+  - ["ನೂರು ಐದು", "105", number]  # textbook
+  - ["ಎರಡು ನೂರು", "200", number]  # textbook
 
 must_not_match:
   - ["ಬೇಕು", "ಬೇಡ", no_match]  # textbook: want, don't want
@@ -157,3 +166,5 @@ known_gaps:
   - { a: "ellu", b: "elu", expect: no_match, why: "textbook; the double-letter rule reads ellu (sesame) as elu, which is 7" }
   - { a: "ಬಾಯಿ", b: "ಬೈ", expect: no_match, why: "textbook; y between two different vowels drops, so ಬಾಯಿ (mouth) reads bai, the same as ಬೈ (bye)" }
   - { a: "ಕಾಲು", b: "ಕಲ್ಲು", expect: no_match, why: "textbook; vowel length and double letters collapse, so ಕಾಲು (leg) and ಕಲ್ಲು (stone) both read kalu" }
+  - { a: "ಕತ್ತು", b: "ಕಟ್ಟು", expect: no_match, why: "textbook; ITRANS case is lowercased and doubles collapse, so the dental ತ and retroflex ಟ merge: ಕತ್ತು (neck) and ಕಟ್ಟು (tie) both read katu (R9)" }
+  - { a: "ಹಾಲು", b: "ಹಾಳು", expect: no_match, why: "textbook; ಳ reads L, which lowercases to l, so ಹಾಲು (milk) and ಹಾಳು (ruin) both read halu (R9)" }

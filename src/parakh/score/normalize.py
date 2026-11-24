@@ -202,7 +202,7 @@ def _below_100(keys: list[str], i: int, n: _Numbers, *, zero: bool) -> tuple[int
 
 
 def _hundreds(keys: list[str], i: int, n: _Numbers) -> tuple[int, int] | None:
-    """Value and token count of "[X] hundred|sau [and] [Y]" at i; no X means one hundred."""
+    """Value and token count of "[X] hundred|sau|nooru [and] [Y]" at i; no X means 100."""
     unit = n.words.get(keys[i])
     if unit is not None and 1 <= unit <= 9 and i + 1 < len(keys) and keys[i + 1] in n.hundred:
         j = i + 2
