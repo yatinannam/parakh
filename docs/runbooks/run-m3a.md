@@ -173,8 +173,8 @@ The table compares the judge's scores with the controller's own rubric scores on
 | Run | Scenario | Judge (U, L, I, T, P) | Controller (U, L, I, T, P) | Within 1 point |
 |---|---|---|---|---|
 | `97a0feae` | book-iyer | 3, 5, -, 2, 5 | 3, 4, -, 2, 4 | yes |
-| `b15341e3` | bargein | 2, 4, 2, 2, 5 | 2, 3, 3, 2, 4 | yes |
-| `f34b1caf` | bargein-correction | 2, 3, 5, 1, 3 | 2, 3, 4, 1, 4 | yes |
+| `b15341e3` | bargein | 2, 4, -, 2, 5 (first round 2, 4, 2, 2, 5) | 2, 3, -, 2, 4 | yes |
+| `f34b1caf` | bargein-correction | 2, 3, 5, 1, 4 (first round 2, 3, 5, 1, 3) | 2, 3, 4, 1, 4 | yes |
 | `c0ca4538` | devanagari | 5, 4, -, 5, 5 | 4, 5, -, 5, 5 | yes |
 | `baf7f5e1` | double-digits | 2, 4, -, 1, 5 | 2, 5, -, 1, 4 | yes |
 | `539970e6` | english-heavy | 2, 4, -, 1, 3 | 2, 5, -, 1, 4 | yes |
@@ -187,7 +187,11 @@ Key: U understanding, L language match, I interruption handling, T task progress
 
 The judge agreed within 1 point on all 10 calls, and never lowered language match for a Hinglish or Devanagari reply in the caller's register. Its one 3 for language match was a call where the agent answered a Hinglish caller in English. The rubric stays `judge-v1`.
 
-One wording issue: for a barge-in that landed after the agent had already finished, the judge read "agent finished first" as a slow reaction, and gave interruption handling 2. Yatin confirms this table later.
+In the first round, a planned barge-in that never happened (the agent had already finished) reached the judge as "caller cut in after 1200 ms; agent finished first". The judge read it as a slow reaction and gave interruption handling 2. The final review fixed the payload: such a turn now says the planned barge-in did not happen, and interruption handling is null.
+
+The two barge-in runs were re-judged with `parakh judge --force`. The table shows the re-judged scores, with the first round in brackets. Both stay within 1 point of the controller's scores. The judge means in the run log are the re-judged ones: bargein 3.2 and bargein-correction 3.0.
+
+Yatin confirms this table later.
 
 ## Troubleshooting
 
@@ -217,8 +221,8 @@ Loose WER is per run, rescored with the final normaliser and references. "As run
 
 | Scenario | Preset | Status | Turns | Loose WER (as run) | Strict WER | p50 / p95 ms | Judge mean | Task progress |
 |---|---|---|---|---|---|---|---|---|
-| bargein | clean | completed | 4/4 | 0.0 % | 103.3 % | 5375 / 5984 | 3.0 | 2 |
-| bargein-correction | clean | completed | 4/4 | 16.1 % | 106.5 % | 3789 / 4730 | 2.8 | 1 |
+| bargein | clean | completed | 4/4 | 0.0 % | 103.3 % | 5375 / 5984 | 3.2 | 2 |
+| bargein-correction | clean | completed | 4/4 | 16.1 % | 106.5 % | 3789 / 4730 | 3.0 | 1 |
 | book | clean | completed | 4/4 | 3.3 % | 100.0 % | 4057 / 5103 | 3.2 | 2 |
 | book-iyer | clean | completed | 4/4 | 0.0 % (6.7 %) | 120.0 % | 3783 / 4907 | 3.8 | 2 |
 | correction | clean | completed | 4/4 | 21.2 % | 100.0 % | 3168 / 3591 | 3.0 | 1 |

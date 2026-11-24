@@ -244,7 +244,7 @@ Two worked examples, both checked against the current code:
 | `nine eight four five, zero one two, three four five` (reference) | number words to digits, then joined | `9845012345` |
 | `9845 012 345` (Whisper) | adjacent digit groups joined | `9845012345` |
 
-The normaliser has a golden file of 263 pairs: 200 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 14 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
+The normaliser has a golden file of 269 pairs: 200 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 14 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
 
 ## Architecture
 
@@ -334,7 +334,7 @@ limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 | M0 | Repository hygiene, CI, tooling, Task 1 evaluation of Calibrate | Complete (2026-11-16) |
 | M1 | One Hinglish scenario, clean audio, Pipecat clinic test agent, latency and strict and loose WER, JSON and HTML report | Complete (2026-11-17) |
 | M2 | Degradation presets (telephone band, 8 kHz, G.711 mu-law, noise, packet loss, clipping), barge-in with stop latency, comparison page, batch runs | Complete (2026-11-21) |
-| M3a | Hinglish pack of 14 scenarios, normaliser hardened on 263 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
+| M3a | Hinglish pack of 14 scenarios, normaliser hardened on 269 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
 | M3b | Kannada-English and Tamil-English scenarios, a small real-recording set, the Indic Parler-TTS benchmark, the heavy-model lock | Next |
 | M4 | Mock hospital management system and end-state adapter for deterministic task success; end-to-end CI workflow | Planned |
 | M5 | Public release: scenario pack, comparison run across presets and agent setups | Planned |

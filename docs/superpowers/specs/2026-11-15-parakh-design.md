@@ -225,7 +225,7 @@ Parakh talks to it through an `EndStateAdapter` interface (`reset(seed, clock)`,
 
 The code runs step 3 before step 2, so Devanagari number words such as `दो` are read as numbers too.
 
-The normaliser ships with a golden test file, `tests/golden/normalizer_pairs.yaml`: 263 pairs, 200 that must match (hinglish 77, loanword 41, variant 34, number 48), 55 that must not match, and 14 `known_gaps` that are strict xfails (fixing one fails the suite until the pair moves up). The M3a live runs added observed pairs. Hypothesis property tests check idempotence, ASCII-only tokens, self-match and symmetry.
+The normaliser ships with a golden test file, `tests/golden/normalizer_pairs.yaml`: 269 pairs, 200 that must match (hinglish 77, loanword 41, variant 34, number 48), 55 that must not match, and 14 `known_gaps` that are strict xfails (fixing one fails the suite until the pair moves up). The M3a live runs added observed pairs. Hypothesis property tests check idempotence, ASCII-only tokens, self-match and symmetry.
 
 Known rare merges, accepted because the alternative merges common words: `bara` reads 12, `चौड़ा` reads 14 and `चाह` reads 6; `बाई` equals `bye` and `सादे` equals `साढ़े`; `नैन` reads 9 and `सेवन` reads 7; `et`, `sevan`, `siks`, `thri` and `nain` read as digits. Whisper's `तू` and `थी` for English "two" and "three" stay a known gap, because both are common Hindi words. Two more rules cause known gaps in the golden file: the `c+h+` rule merges `बच्चा` with `बचा` and `बच्चे` with `बचे`, and the final-`h` rule merges `जगह` with `जागा`, `तरह` with `तारा`, `सलाह` with `साला` and `वजह` with `वजा`.
 
@@ -407,7 +407,7 @@ Grouped by area. The "M" column is the milestone that handles it.
 | EC-46 | Empty reference or hypothesis. | Defined rules: empty hypothesis gives WER 1.0; an empty reference skips the turn. | M1 |
 | EC-47 | The agent exposes no transcript. | WER `null` with a reason. Never substituted with Whisper. | M1 |
 | EC-48 | Whisper hallucinates on silence or noise. | VAD filter on, trimmed input, known-hallucination flag. Whisper is used only for agent replies with no text. M1 uses no Parakh-side Whisper: the clinic agent sends its reply text, and WER uses the agent's own transcript. The rest of this row applies when Parakh-side Whisper is added. | M1 |
-| EC-49 | A normaliser bug makes the metric lie. | Golden pairs, property tests, strict WER shown alongside. **M3a:** 263 golden pairs, Hypothesis property tests (idempotence, ASCII tokens, self-match, symmetry), and known gaps as strict xfails. | M1/M3 |
+| EC-49 | A normaliser bug makes the metric lie. | Golden pairs, property tests, strict WER shown alongside. **M3a:** 269 golden pairs, Hypothesis property tests (idempotence, ASCII tokens, self-match, symmetry), and known gaps as strict xfails. | M1/M3 |
 
 ### LLM judge
 | ID | Edge case | Handling | M |
