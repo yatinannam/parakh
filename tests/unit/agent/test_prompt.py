@@ -13,8 +13,8 @@ def test_prompt_rules_and_date() -> None:
         "is confirmed or the caller says goodbye." in prompt
     )
     assert "2026-11-19" in prompt
-    assert "Dr. Rao" in prompt
-    assert "Dr. Iyer" in prompt
+    assert "Doctor Rao" in prompt
+    assert "Doctor Iyer" in prompt
     assert "Parakh Clinic" in prompt
 
 
@@ -23,3 +23,9 @@ def test_prompt_spells_doctor_in_full() -> None:
         "Always write the word Doctor in full, in every language and script; never abbreviate "
         "it as Dr. or डॉ." in system_prompt(load_config())
     )
+
+
+def test_prompt_has_no_dr_outside_the_rule() -> None:
+    from agents.clinic_agent.prompt import DOCTOR_RULE
+
+    assert "Dr." not in system_prompt(load_config()).replace(DOCTOR_RULE, "")
