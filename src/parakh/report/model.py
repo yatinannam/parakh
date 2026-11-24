@@ -125,6 +125,8 @@ class Report(_Strict):
     warnings: list[str]
     # Default so reports written before the judge existed still load under schema_version 1.
     scenario_goal: str | None = None
+    # True when the caller turns were the user's own recordings (D10): the judge skips it.
+    real_audio: bool = False
 
 
 def write_report_json(report: Report, path: Path) -> None:

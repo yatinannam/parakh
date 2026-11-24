@@ -431,3 +431,17 @@ async def test_daily_token_limit_ends_provider(tmp_path: Path) -> None:
     out = await only.judge(rep("c"))
     assert out.status == "rate_limited"
     assert out.reason is not None and "daily token limit reached" in out.reason
+
+
+async def test_real_audio_report_is_skipped_before_cache_and_requests(tmp_path: Path) -> None:
+    fake = Fake(lambda r: groq_ok())
+    r = runner(tmp_path, fake)
+    await r.judge(rep())  # warms the cache for the same payload
+    assert len(fake.requests) == 1
+    real = rep().model_copy(update={"real_audio": True})
+    out = await r.judge(real)
+    assert out.status == "skipped" and out.reason == "real recording (D20)"
+    assert out.cached is False and out.attempts == 0
+    forced = await r.judge(real, force=True)
+    assert forced.status == "skipped"
+    assert len(fake.requests) == 1

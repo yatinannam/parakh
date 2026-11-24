@@ -92,6 +92,7 @@ def build_report(
     agent_url: str,
     preset: str,
     line: CallerLine | None = None,
+    real: bool = False,
 ) -> Report:
     count = len(scenario.turns)
     starts = [float(e["t_ms"]) for e in events if e["kind"] == "caller_turn_start"]
@@ -220,6 +221,7 @@ def build_report(
         ),
         warnings=[*result.warnings, *_language_warnings(scenario, result.agent_info)],
         scenario_goal=scenario.goal,
+        real_audio=real,
     )
 
 
@@ -241,6 +243,7 @@ def interrupted_report(
     agent_url: str,
     preset: str,
     line: CallerLine | None = None,
+    real: bool = False,
 ) -> Report:
     """Partial report from the events recorded so far; the minimal fallback without any."""
     try:
@@ -249,7 +252,7 @@ def interrupted_report(
         events = []
     if not events:
         return fallback_report(
-            scenario, run_id, agent_url, preset, "interrupted", [INTERRUPT_WARNING]
+            scenario, run_id, agent_url, preset, "interrupted", [INTERRUPT_WARNING], real
         )
     try:
         infos = [
@@ -270,7 +273,14 @@ def interrupted_report(
             warnings=[*warnings, INTERRUPT_WARNING],
         )
         return build_report(
-            scenario, stand_in, events, run_id=run_id, agent_url=agent_url, preset=preset, line=line
+            scenario,
+            stand_in,
+            events,
+            run_id=run_id,
+            agent_url=agent_url,
+            preset=preset,
+            line=line,
+            real=real,
         )
     except Exception as exc:  # a half-written event must not lose the interrupt
         return fallback_report(
@@ -280,6 +290,7 @@ def interrupted_report(
             preset,
             "interrupted",
             [INTERRUPT_WARNING, f"partial report failed: {type(exc).__name__}"],
+            real,
         )
 
 
@@ -290,6 +301,7 @@ def fallback_report(
     preset: str,
     status: str,
     warnings: list[str],
+    real: bool = False,
 ) -> Report:
     """Minimal report for a run that failed outside the call itself."""
     return Report(
@@ -332,4 +344,5 @@ def fallback_report(
         ),
         warnings=warnings,
         scenario_goal=scenario.goal,
+        real_audio=real,
     )

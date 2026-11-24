@@ -6,7 +6,7 @@ Pure functions: no clock, no recorder. The driver applies a Mapped to its state.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -31,6 +31,20 @@ from parakh.transport.codec import (
     caller_transcript,
 )
 from parakh.transport.ws import redact_urls
+
+CallStatus = Literal[
+    # The turn machine finished, or the agent closed the socket after replying to the
+    # last caller turn the script plays.
+    "completed",
+    "turn_timeout",  # no agent audio within response_timeout_s of a wait starting
+    "call_timeout",  # call_timeout_s since t0
+    "agent_disconnected",  # socket closed after the first caller turn, before completion
+    "agent_hung_up_early",  # socket closed before the first caller turn
+    "agent_unreachable",  # the WebSocket could not be opened
+    "protocol_error",  # the agent sent something that is not a valid Pipecat frame
+    "interrupted",  # Ctrl+C; only the run layer builds a result with this status
+    "real_data_refused",  # a real run, and the agent is not provably local (parakh.caller.realdata)
+]
 
 
 @dataclass(frozen=True)
@@ -110,3 +124,18 @@ def _map_rtvi(msg: RtviMessage, repeats: RtviRepeats) -> Mapped:
     if msg.type == ERROR:
         return Mapped(None, {}, warning=agent_error_text(msg))
     return Mapped("rtvi_unknown", {"type": msg.type})
+
+
+def barge_event(
+    barge: bool | None, turn: int, after_ms: int | None, onset_ms: float
+) -> tuple[str, dict[str, Any]] | None:
+    """The event for how a turn with a barge-in began: barge_in, barge_in_missed, or none."""
+    if barge is True:
+        return "barge_in", {
+            "turn": turn,
+            "after_agent_ms": after_ms,
+            "agent_onset_ms": round(onset_ms, 3),
+        }
+    if barge is False:
+        return "barge_in_missed", {"turn": turn, "after_agent_ms": after_ms}
+    return None

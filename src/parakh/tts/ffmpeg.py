@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import numpy as np
 
@@ -24,6 +25,18 @@ def require_ffmpeg() -> str:
 
 def decode_to_pcm16(data: bytes, rate: int = SAMPLE_RATE) -> PCM:
     """Decode encoded audio bytes to mono int16 PCM at `rate`."""
+    return _decode("pipe:0", data, rate)
+
+
+def decode_file_to_pcm16(path: Path, rate: int = SAMPLE_RATE) -> PCM:
+    """Decode an audio file to mono int16 PCM at `rate`.
+
+    ffmpeg reads the file itself: an .m4a with its index at the end cannot be piped.
+    """
+    return _decode(str(path.resolve()), None, rate)
+
+
+def _decode(source: str, data: bytes | None, rate: int) -> PCM:
     ffmpeg = require_ffmpeg()
     result = subprocess.run(
         [
@@ -31,8 +44,9 @@ def decode_to_pcm16(data: bytes, rate: int = SAMPLE_RATE) -> PCM:
             "-hide_banner",
             "-loglevel",
             "error",
+            "-nostdin",
             "-i",
-            "pipe:0",
+            source,
             "-f",
             "s16le",
             "-ac",

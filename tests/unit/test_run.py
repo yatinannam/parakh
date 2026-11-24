@@ -8,6 +8,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from parakh import batch as batch_module
 from parakh import run as run_module
 from parakh.caller.driver import CallResult, CallStatus
 from parakh.caller.pacer import JitterStats
@@ -639,7 +640,7 @@ async def test_preflight_builds_babble_once_for_noise_presets(
         order.append("noise")
         seen.append((spec.noise.kind, seed))
 
-    monkeypatch.setattr(run_module, "noise_track", fake_noise_track)
+    monkeypatch.setattr(batch_module, "noise_track", fake_noise_track)
     _batch_fake(monkeypatch)
     inner = run_module.run_scenario
 
@@ -675,7 +676,7 @@ async def test_comparison_write_error_does_not_stop_batch(
     def bad_write(*_a: Any, **_k: Any):
         raise OSError("disk full")
 
-    monkeypatch.setattr(run_module, "write_comparison", bad_write)
+    monkeypatch.setattr(batch_module, "write_comparison", bad_write)
     warnings: list[str] = []
     results, _ = await _batch(
         tmp_path, ["clean", "phone", "bad_line"], names=("s1",), on_warning=warnings.append
@@ -987,3 +988,133 @@ async def test_preflight_rejects_duplicate_scenario_ids(tmp_path: Path):
             engine=FakeEngine(),
             cache_dir=base / "cache",
         )
+
+
+# --- real recordings (D10) ---------------------------------------------------------------
+
+
+def _record(base: Path, ids: tuple[str, ...] = ("run-int-01",)) -> Path:
+    """data/real-style folder with a recording for both turns of the test scenario."""
+    root = base / "real"
+    for scenario_id in ids:
+        for n in (1, 2):
+            path = root / scenario_id / f"turn-{n:02d}.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"]
+                + ["sine=frequency=440:duration=0.5", "-ar", "48000", "-ac", "2", str(path)],
+                check=True,
+                capture_output=True,
+            )
+    return root
+
+
+async def test_real_run_refuses_remote_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    scenario, runs, cache = _setup(tmp_path)
+    calls = _recording_run_call(monkeypatch)
+    engine = FakeEngine()
+    with pytest.raises(ValueError, match="real recordings need an agent on this machine"):
+        await run_scenario(
+            scenario,
+            "ws://10.0.0.5:8765",
+            runs_dir=runs,
+            engine=engine,
+            cache_dir=cache,
+            real=True,
+            real_root=_record(runs.parent),
+        )
+    assert calls == [] and engine.calls == 0
+    assert not runs.exists() and not cache.exists()
+
+
+async def test_real_run_without_recordings_fails_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    scenario, runs, cache = _setup(tmp_path)
+    calls = _recording_run_call(monkeypatch)
+    engine = FakeEngine()
+    with pytest.raises(ValueError, match=r"no recording for turn 1.*turn-01\.\*"):
+        await run_scenario(
+            scenario,
+            "ws://127.0.0.1:1",
+            runs_dir=runs,
+            engine=engine,
+            cache_dir=cache,
+            real=True,
+            real_root=runs.parent / "real",
+        )
+    assert calls == [] and engine.calls == 0 and not runs.exists()
+
+
+async def test_real_run_skips_judge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(500)
+
+    judge = JudgeRunner(
+        load_config(),
+        {"GROQ_API_KEY": "not-a-real-key"},
+        cache_dir=tmp_path / "judge cache",
+        quota_dir=tmp_path / "quota dir",
+        transport=httpx.MockTransport(handler),
+    )
+    kwargs: dict[str, Any] = {}
+
+    async def fake_run_call(_url: str, _scn: Scenario, _line: Any, run_dir: Path, **k: Any):
+        kwargs.update(k)
+        _write_events(run_dir, [{"kind": "call_start", "t_ms": 0.0}])
+        return _call_result("completed", run_dir)
+
+    monkeypatch.setattr(run_module, "run_call", fake_run_call)
+    scenario, runs, cache = _setup(tmp_path)
+    engine = FakeEngine()
+    report, run_dir = await run_scenario(
+        scenario,
+        "ws://127.0.0.1:1",
+        runs_dir=runs,
+        engine=engine,
+        cache_dir=cache,
+        judge=judge,
+        real=True,
+        real_root=_record(runs.parent),
+    )
+    assert kwargs == {"real": True}
+    assert engine.calls == 0  # no caller turn went to the TTS engine
+    assert seen == []
+    assert report.real_audio is True
+    assert report.judge is not None and report.judge.status == "skipped"
+    assert report.judge.reason == "real recording (D20)"
+    data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+    assert data["real_audio"] is True
+    html = (run_dir / "report.html").read_text(encoding="utf-8")
+    assert "Real recording: audio stays on this machine" in html
+
+
+async def test_real_run_batch_preflight_refuses_remote_url(tmp_path: Path):
+    base = tmp_path / "s p"
+    base.mkdir()
+    files = _scenario_files(base, ("a",))
+    with pytest.raises(ValueError, match="real recordings need an agent on this machine"):
+        await run_batch(
+            files,
+            "ws://example.com:1",
+            ["clean"],
+            runs_dir=base / "runs",
+            engine=FakeEngine(),
+            cache_dir=base / "cache",
+            real=True,
+            real_root=base / "real",
+        )
+    assert not (base / "runs").exists()
+
+
+def test_real_data_refused_exits_2():
+    assert exit_code(_report("real_data_refused")) == 2
+
+
+def test_report_without_real_audio_field_still_loads():
+    data = _report("completed").model_dump()
+    del data["real_audio"]
+    assert Report.model_validate(data).real_audio is False

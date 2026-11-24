@@ -135,6 +135,8 @@ class JudgeRunner:
         return self._redact(text)[:REASON_MAX]
 
     async def judge(self, report: Report, *, force: bool = False) -> JudgeReport:
+        if report.real_audio:  # before any cache lookup or request (D20)
+            return self._report("skipped", reason="real recording (D20)")
         if not reached_turns(report) and not any(t.agent_text for t in report.turns):
             return self._report("skipped", reason="nothing to judge")
         payload = judge_payload(report)

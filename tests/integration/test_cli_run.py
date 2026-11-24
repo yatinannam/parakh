@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -337,3 +338,104 @@ def test_agent_429_ends_run_rate_limited(tmp_path: Path) -> None:
     report = json.loads((_only_run(runs) / "report.json").read_text(encoding="utf-8"))
     assert report["status"] == "rate_limited"
     assert any(w.startswith("agent error") and "429" in w for w in report["warnings"])
+
+
+# --- real recordings (D10, EC-60) --------------------------------------------------------
+
+
+def _record_turns(base: Path) -> None:
+    """data/real/cli-run-01/turn-0N.wav under base: loud 48 kHz stereo tones."""
+    for n in range(1, 5):
+        path = base / "data" / "real" / "cli-run-01" / f"turn-{n:02d}.wav"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"]
+            + ["sine=frequency=500:duration=0.6", "-ar", "48000", "-ac", "2", str(path)],
+            check=True,
+            capture_output=True,
+        )
+
+
+@pytest.fixture
+def real_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    base = tmp_path / "dir with space"
+    base.mkdir()
+    _record_turns(base)
+    monkeypatch.chdir(base)
+
+    def no_judge() -> None:
+        raise AssertionError("a real run must not even create the judge")
+
+    monkeypatch.setattr(cli, "make_judge", no_judge)
+
+    monkeypatch.setattr(cli, "make_engine", lambda: _NoCallerTTS())
+    return base
+
+
+class _NoCallerTTS(FakeEngine):
+    async def synthesize(self, text: str, voice: str, rate: str, pitch: str) -> bytes:
+        raise AssertionError(f"edge-tts must not be called for {text!r}")
+
+
+def test_real_run_sends_no_audio_to_remote_stt_agent(real_base: Path) -> None:
+    behaviour = FakeBehaviour(agent_info={"stt_model": "whisper-large-v3-turbo"})
+    with background_agent(behaviour) as url:
+        result, runs = _invoke(real_base, url, "--real")
+    assert result.exit_code == 2, result.output
+    report = json.loads((_only_run(runs) / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "real_data_refused"
+    assert report["real_audio"] is True
+    assert (
+        "real data refused: agent stt_model 'whisper-large-v3-turbo' is not local"
+        in report["warnings"]
+    )
+    assert all(t["transcript"] == "" for t in report["turns"])
+    assert report["judge"] is None
+    assert behaviour.received_dbfs, "the caller should still stream (silence and bed)"
+    assert max(behaviour.received_dbfs) <= -45.0
+    assert all(rate == 16000 for rate, _ in behaviour.received)
+    assert "status: real_data_refused" in result.output
+
+
+def test_real_run_refuses_an_agent_that_sends_no_info(real_base: Path) -> None:
+    behaviour = FakeBehaviour()
+    with background_agent(behaviour) as url:
+        result, runs = _invoke(real_base, url, "--real")
+    assert result.exit_code == 2, result.output
+    report = json.loads((_only_run(runs) / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "real_data_refused"
+    assert "real data refused: no agent info within 5.0 s" in report["warnings"]
+    assert max(behaviour.received_dbfs) <= -45.0
+
+
+def test_real_run_completes_with_local_stt_agent(real_base: Path) -> None:
+    behaviour = FakeBehaviour(
+        agent_info={"stt_model": "local:faster-whisper-small"},
+        transcripts=["one", "two", "three", "four"],
+    )
+    with background_agent(behaviour) as url:
+        result, runs = _invoke(real_base, url, "--real")
+    assert result.exit_code == 0, result.output
+    report = json.loads((_only_run(runs) / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "completed"
+    assert report["real_audio"] is True
+    assert report["metrics"]["latency"]["n"] == 4  # the first turn was held, not played as silence
+    assert report["judge"] is None
+    assert sum(1 for level in behaviour.received_dbfs if level > -45.0) > 100
+    html = (_only_run(runs) / "report.html").read_text(encoding="utf-8")
+    assert "Real recording: audio stays on this machine" in html
+
+
+def test_real_run_refuses_a_remote_url_before_anything_is_written(real_base: Path) -> None:
+    result, runs = _invoke(real_base, "ws://10.0.0.5:8765", "--real")
+    assert result.exit_code == 2, result.output
+    assert "real recordings need an agent on this machine" in result.output
+    assert not runs.exists()
+
+
+def test_real_run_missing_recording_exits_2(real_base: Path) -> None:
+    (real_base / "data" / "real" / "cli-run-01" / "turn-03.wav").unlink()
+    result, runs = _invoke(real_base, "ws://127.0.0.1:1", "--real")
+    assert result.exit_code == 2, result.output
+    assert "turn-03.*" in result.output
+    assert not runs.exists()

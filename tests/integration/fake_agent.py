@@ -47,8 +47,8 @@ class FakeBehaviour:
     opening handshake back, so connecting takes that long. stream_silence sends a
     silent 20 ms frame every 20 ms whenever the agent is not speaking, as some
     telephony agents do, from connect to close. received records (sample_rate, n_samples)
-    of every caller audio frame. vad_dbfs is the level a caller frame must exceed to count
-    as speech, so a test can make the fake ignore a noise bed.
+    and received_dbfs the level of every caller audio frame. vad_dbfs is the level a caller
+    frame must exceed to count as speech, so a test can make the fake ignore a noise bed.
 
     yield_after_ms: while the reply is speaking (its nominal length, reply_ms from its
     start), stop that long after the first loud caller frame; None never yields. A
@@ -81,6 +81,7 @@ class FakeBehaviour:
     stream_silence: bool = False
     vad_dbfs: float = SPEECH_DBFS
     received: list[tuple[int, int]] = field(default_factory=list)
+    received_dbfs: list[float] = field(default_factory=list)  # level of each received frame
     yield_after_ms: int | None = None
     send_interruption: bool = False
     user_started: bool = False
@@ -181,7 +182,9 @@ class _Session:
         if frame.WhichOneof("frame") != "audio":
             return
         self._b.received.append((frame.audio.sample_rate, len(frame.audio.audio) // 2))
-        if dbfs(np.frombuffer(frame.audio.audio, dtype="<i2")) <= self._b.vad_dbfs:
+        level = dbfs(np.frombuffer(frame.audio.audio, dtype="<i2"))
+        self._b.received_dbfs.append(level)
+        if level <= self._b.vad_dbfs:
             return
         now = time.perf_counter_ns()
         onset = not self._waiting

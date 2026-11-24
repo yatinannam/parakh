@@ -195,11 +195,20 @@ def run(
     judge: Annotated[
         bool, typer.Option("--judge/--no-judge", help="Rate each run with the advisory judge.")
     ] = True,
+    real: Annotated[
+        bool,
+        typer.Option(
+            "--real",
+            help="Play your own recordings (data/real). Needs a local agent with local STT.",
+        ),
+    ] = False,
 ) -> None:
     """Run scenarios against an agent and write report.json and report.html per run.
 
     More than one run (several scenarios or presets) also writes compare.html. The judge
-    is advisory: it never changes a run's status or the exit code.
+    is advisory: it never changes a run's status or the exit code. --real plays recordings
+    that never leave this machine: the agent must be on 127.0.0.1, localhost or ::1 and
+    report a local STT model, and the judge is skipped.
     """
     batch_dirs: list[Path] = []
 
@@ -226,7 +235,8 @@ def run(
                 on_warning=lambda message: typer.echo(message, err=True),
                 resume=resume,
                 on_skip=lambda sid, name: typer.echo(f"skipped (completed): {sid} / {name}"),
-                judge=make_judge() if judge else None,
+                judge=make_judge() if judge and not real else None,
+                real=real,
             )
         )
     except KeyboardInterrupt:

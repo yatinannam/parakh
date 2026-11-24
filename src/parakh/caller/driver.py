@@ -23,15 +23,16 @@ import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import psutil
 
 from parakh.audio import FRAME_MS, PCM, SAMPLE_RATE, SPEECH_DBFS, dbfs
 from parakh.caller.clock import PlaybackClock
-from parakh.caller.events import agent_pcm, map_event
+from parakh.caller.events import CallStatus, agent_pcm, barge_event, map_event
 from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats, Pacer
+from parakh.caller.realdata import RealDataGate
 from parakh.caller.recorder import Recorder
 from parakh.caller.turns import Action, TurnMachine, TurnState
 from parakh.scenario import Scenario
@@ -42,19 +43,6 @@ from parakh.transport.codec import (
     RtviRepeats,
 )
 from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url
-
-CallStatus = Literal[
-    # The turn machine finished, or the agent closed the socket after replying to the
-    # last caller turn the script plays.
-    "completed",
-    "turn_timeout",  # no agent audio within response_timeout_s of a wait starting
-    "call_timeout",  # call_timeout_s since t0
-    "agent_disconnected",  # socket closed after the first caller turn, before completion
-    "agent_hung_up_early",  # socket closed before the first caller turn
-    "agent_unreachable",  # the WebSocket could not be opened
-    "protocol_error",  # the agent sent something that is not a valid Pipecat frame
-    "interrupted",  # Ctrl+C; only the run layer builds a result with this status
-]
 
 CPU_WARN_PERCENT = 85.0
 _WAV_RATE = SAMPLE_RATE
@@ -82,7 +70,9 @@ class _Call:
         recorder: Recorder,
         t0_ns: int,
         end_of_turn_silence_ms: float,
+        gate: RealDataGate | None = None,
     ) -> None:
+        self._gate = gate  # set for a real run: recorded frames wait for it
         self._line = line
         self._rec = recorder
         self._t0 = t0_ns
@@ -190,6 +180,14 @@ class _Call:
             if now >= next_cpu_ns:
                 self.cpu_max = max(self.cpu_max, psutil.cpu_percent(interval=None))
                 next_cpu_ns = now + _NS_PER_S
+            if self._gate is not None:
+                state = self._gate.poll()
+                if state == "refused":
+                    self._end("real_data_refused", self._gate.warning)
+                    return
+                if state == "pending":  # hold the turn: bed frames only, the turn machine waits
+                    await self._send_frame(conn)
+                    continue
             action = self._step(now)
             if action.kind == "finish":
                 self._end("completed")
@@ -244,6 +242,8 @@ class _Call:
         else:
             turn, index, frame = self._turn, self._next, frames[self._next]
             lost = self._line.turns[turn].lost[index]
+            if self._gate is not None:
+                frame = self._gate.guard(frame)  # silence unless the gate is open
         self._rec.caller_frame(t_send, frame, self._rate, turn=turn, frame=index, lost=lost)
         await conn.send_audio(frame.tobytes(), self._rate)
         if frames is not None:
@@ -255,13 +255,9 @@ class _Call:
 
     def _log_barge(self, t_ns: int) -> None:
         after = self._barge_offsets[self._turn]
-        if self._barge is True:
-            onset = round(self.machine.reply_onset_ms, 3)
-            self._event(
-                "barge_in", t_ns, turn=self._turn, after_agent_ms=after, agent_onset_ms=onset
-            )
-        elif self._barge is False:
-            self._event("barge_in_missed", t_ns, turn=self._turn, after_agent_ms=after)
+        event = barge_event(self._barge, self._turn, after, self.machine.reply_onset_ms)
+        if event is not None:
+            self._event(event[0], t_ns, **event[1])
 
     async def _receive(self, conn: AgentConnection) -> None:
         try:
@@ -298,6 +294,8 @@ class _Call:
             self._event(mapped.kind, now, **fields)
         if mapped.agent_info is not None:
             self.agent_info = mapped.agent_info
+            if self._gate is not None:
+                self._gate.on_agent_info(mapped.agent_info)
         if mapped.bot_stopped:
             self._bot_stopped = True
 
@@ -331,17 +329,20 @@ async def run_call(
     run_dir: Path,
     *,
     end_of_turn_silence_ms: float = 800,
+    real: bool = False,
 ) -> CallResult:
     """Run one real-time call against the agent at url and record it under run_dir.
 
     Call outcomes are reported in CallResult.status, never raised. A URL that is
-    not ws:// or wss:// raises ValueError before anything is written.
+    not ws:// or wss:// raises ValueError before anything is written. real puts the
+    recorded turns behind a RealDataGate: silence until the agent proves it is local.
     """
     check_agent_url(url)
     psutil.cpu_percent(interval=None)  # primes the counter; this first reading is meaningless
     t0 = time.perf_counter_ns()
     recorder = Recorder(run_dir, t0, _WAV_RATE)
-    call = _Call(scenario, line, recorder, t0, end_of_turn_silence_ms)
+    gate = RealDataGate(t0) if real else None
+    call = _Call(scenario, line, recorder, t0, end_of_turn_silence_ms, gate)
     try:
         await call.run(url)
     finally:

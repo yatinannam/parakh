@@ -35,6 +35,9 @@ audio { width: 100%; margin: 0.25rem 0 1rem; }
 <body>
 <h1>{{ r.scenario_title }}</h1>
 <p class="muted">{{ r.scenario_id }} / {{ r.language }} / preset {{ r.preset }}{% if r.seed is not none %} / seed {{ r.seed }}{% endif %} / {{ r.created_at }}</p>
+{% if r.real_audio %}
+<p class="warn">Real recording: audio stays on this machine</p>
+{% endif %}
 {% if r.timing_unreliable %}
 <p class="warn">Timing is unreliable for this run.</p>
 {% endif %}

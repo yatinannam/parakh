@@ -14,6 +14,7 @@ from parakh.report.html import write_report_html
 from parakh.report.model import JudgeReport, Report, load_report, write_report_json
 from parakh.report.rescore import rescore_report
 from parakh.scenario import ScenarioError, load_scenario
+from parakh.tts.recordings import REAL_ROOT, RecordingError, recording_status
 
 
 def _default_compare_dir(run_dirs: list[Path]) -> Path:
@@ -149,7 +150,39 @@ def rescore(
         typer.echo(f"{run_dir}: loose WER {_pct(old)} -> {_pct(new)}")
 
 
+def recordings_status(
+    paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")],
+    real_dir: Annotated[Path, typer.Option(help="Where the recordings live.")] = REAL_ROOT,
+) -> None:
+    """Show which turns have a recording under data/real. Exits 2 when any is missing."""
+    files: list[Path] = []
+    for path in paths:
+        files.extend(sorted(path.rglob("*.yaml")) if path.is_dir() else [path])
+    complete = True
+    for file in files:
+        try:
+            scenario = load_scenario(file)
+            status = recording_status(scenario, real_dir)
+        except (ScenarioError, RecordingError) as exc:
+            raise fail(str(exc)) from exc
+        if len(files) > 1:
+            typer.echo(scenario.id)
+        for turn in status.turns:
+            found = "found" if turn.path is not None else "MISSING"
+            typer.echo(f'turn {turn.index + 1:02d}: {found}  {turn.expected}  "{turn.say}"')
+        for extra in status.unused:
+            typer.echo(f"unused: {extra}")
+        complete = complete and status.complete
+    if not complete:
+        raise typer.Exit(2)
+
+
 def register(app: typer.Typer) -> None:
+    recordings_app = typer.Typer(
+        help="Your real recordings of the caller turns.", no_args_is_help=True
+    )
+    recordings_app.command("status")(recordings_status)
+    app.add_typer(recordings_app, name="recordings")
     app.command()(compare)
     app.command()(report)
     app.command()(judge)

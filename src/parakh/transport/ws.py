@@ -51,6 +51,26 @@ def check_agent_url(url: str) -> None:
         raise ValueError(f"agent URL must start with ws:// or wss://, got {redact_url(url)!r}")
 
 
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def is_loopback(url: str) -> bool:
+    """True when the URL's host is this machine: 127.0.0.1, localhost or ::1."""
+    try:
+        return urlsplit(url).hostname in _LOOPBACK_HOSTS
+    except ValueError:
+        return False
+
+
+def check_local_agent_url(url: str) -> None:
+    """Raise ValueError unless the agent is on this machine (real recordings stay here)."""
+    if not is_loopback(url):
+        raise ValueError(
+            "real recordings need an agent on this machine (127.0.0.1, localhost or ::1), "
+            f"got {redact_url(url)}"
+        )
+
+
 class AgentConnection:
     def __init__(self, ws: ClientConnection) -> None:
         self._ws = ws
@@ -60,7 +80,9 @@ class AgentConnection:
         """Open the WebSocket. Only ws:// and wss:// URLs are accepted."""
         check_agent_url(url)
         try:
-            ws = await connect(url, max_size=None, open_timeout=open_timeout_s)
+            # A loopback agent is never reached through a system proxy.
+            proxy = None if is_loopback(url) else True
+            ws = await connect(url, max_size=None, open_timeout=open_timeout_s, proxy=proxy)
         except (OSError, TimeoutError, WebSocketException) as exc:
             safe = redact_url(url)
             reason = str(exc).replace(url, safe)
