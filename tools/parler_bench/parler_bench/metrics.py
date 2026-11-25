@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 # Planning ruling 6 (D21): Parler is adopted only if all three hold.
@@ -47,3 +47,11 @@ def passes(
         elif wer > MAX_LOOSE_WER:
             reasons.append(f"loose WER {lang} {wer:.0%} above {MAX_LOOSE_WER:.0%}")
     return (not reasons, reasons)
+
+
+def safe_revision(lookup: Callable[[], str | None]) -> str | None:
+    """Model revision from a network lookup; None if it fails, so bench.json is still written."""
+    try:
+        return lookup()
+    except Exception:  # offline, auth or Hub error: the revision is only metadata
+        return None

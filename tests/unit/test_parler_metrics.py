@@ -44,3 +44,13 @@ def test_passes_thresholds():
     assert not ok and len(why) == 1 and "kn" in why[0]
     ok, why = passes({"rtf_mean": 1.0, "rtf_max": 1.0, "peak_rss_mb": 1.0}, {"hi": 0.1})
     assert not ok and any("kn" in w for w in why) and any("ta" in w for w in why)
+
+
+def test_safe_revision():
+    from tools.parler_bench.parler_bench.metrics import safe_revision
+
+    def boom():
+        raise OSError("offline")
+
+    assert safe_revision(lambda: "abc123") == "abc123"
+    assert safe_revision(boom) is None

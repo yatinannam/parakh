@@ -20,7 +20,7 @@ import psutil
 import soundfile as sf
 import yaml
 from dotenv import load_dotenv
-from parler_bench.metrics import rtf, summarise
+from parler_bench.metrics import rtf, safe_revision, summarise
 
 MODEL_ID = "ai4bharat/indic-parler-tts"
 SENTENCES = Path(__file__).with_name("sentences.yaml")
@@ -76,6 +76,7 @@ def run(out: Path) -> int:
 
     out.mkdir(parents=True, exist_ok=True)
     sentences = yaml.safe_load(SENTENCES.read_text(encoding="utf-8"))["sentences"]
+    revision = safe_revision(lambda: model_info(MODEL_ID, token=token).sha)
     torch.set_num_threads(os.cpu_count() or 1)
     rows: list[dict] = []
     with PeakRss() as mem:
@@ -127,7 +128,7 @@ def run(out: Path) -> int:
             "torch": torch.__version__,
             "parler_tts": metadata.version("parler_tts"),
             "transformers": metadata.version("transformers"),
-            "model_revision": model_info(MODEL_ID, token=token).sha,
+            "model_revision": revision,
         },
     }
     (out / "bench.json").write_text(json.dumps(bench, indent=2), encoding="utf-8")

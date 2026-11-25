@@ -9,5 +9,6 @@ transformers and parler-tts live only here, never in Parakh's own lock or CI.
 3. `uv run python -m tools.whisper_check tools/parler_bench/out` (main env, Groq Whisper;
    writes `wer.json`; exit 0 pass, 1 fail, 2 error).
 
-Adopt Parler only if RTF <= 10, peak RSS <= 6000 MB and loose WER <= 25 % in each of
+Adopt Parler only if mean RTF <= 10 (mean after the warm-up sentence; the maximum is
+reported alongside it, not gated), peak RSS <= 6000 MB and loose WER <= 25 % in each of
 Hindi, Kannada and Tamil (planning ruling 6, D21).
