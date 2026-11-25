@@ -10,6 +10,7 @@ in parakh.transport.ws.check_local_agent_url.
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable
 from typing import Any, Literal
@@ -17,6 +18,7 @@ from typing import Any, Literal
 import numpy as np
 
 from parakh.audio import PCM
+from parakh.caller.turns import Action, TurnMachine
 
 REAL_INFO_TIMEOUT_S = 5.0
 LOCAL_STT_PREFIX = "local:"
@@ -69,3 +71,20 @@ class RealDataGate:
     def guard(self, frame: PCM) -> PCM:
         """The frame itself when the gate is open, else silence of the same size."""
         return frame if self.poll() == "open" else np.zeros_like(frame)
+
+
+def step_held(
+    machine: TurnMachine, step: Callable[[int], Action], now: int, *, hold: bool
+) -> Action:
+    """Step the turn machine; with hold (the gate is pending) take back a started turn.
+
+    The machine still hears the agent (its greeting, its replies), so it is in the right
+    state when the gate opens. A recorded turn never starts before that: its frames would
+    go out as silence and score as a miss.
+    """
+    saved = copy.copy(machine.__dict__) if hold else {}
+    action = step(now)
+    if hold and action.kind == "start_turn":
+        machine.__dict__.update(saved)
+        return Action("none")
+    return action

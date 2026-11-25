@@ -378,7 +378,10 @@ class _NoCallerTTS(FakeEngine):
 
 
 def test_real_run_sends_no_audio_to_remote_stt_agent(real_base: Path) -> None:
-    behaviour = FakeBehaviour(agent_info={"stt_model": "whisper-large-v3-turbo"})
+    behaviour = FakeBehaviour(
+        agent_info={"stt_model": "whisper-large-v3-turbo"},
+        transcripts=["one", "two", "three", "four"],  # a leak would show up as a transcript
+    )
     with background_agent(behaviour) as url:
         result, runs = _invoke(real_base, url, "--real")
     assert result.exit_code == 2, result.output
@@ -398,7 +401,7 @@ def test_real_run_sends_no_audio_to_remote_stt_agent(real_base: Path) -> None:
 
 
 def test_real_run_refuses_an_agent_that_sends_no_info(real_base: Path) -> None:
-    behaviour = FakeBehaviour()
+    behaviour = FakeBehaviour(transcripts=["one", "two", "three", "four"])
     with background_agent(behaviour) as url:
         result, runs = _invoke(real_base, url, "--real")
     assert result.exit_code == 2, result.output
@@ -406,6 +409,7 @@ def test_real_run_refuses_an_agent_that_sends_no_info(real_base: Path) -> None:
     assert report["status"] == "real_data_refused"
     assert "real data refused: no agent info within 5.0 s" in report["warnings"]
     assert max(behaviour.received_dbfs) <= -45.0
+    assert all(t["transcript"] == "" for t in report["turns"])
 
 
 def test_real_run_completes_with_local_stt_agent(real_base: Path) -> None:

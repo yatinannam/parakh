@@ -32,7 +32,7 @@ from parakh.caller.clock import PlaybackClock
 from parakh.caller.events import CallStatus, agent_pcm, barge_event, map_event
 from parakh.caller.line import CallerLine
 from parakh.caller.pacer import JitterStats, Pacer
-from parakh.caller.realdata import RealDataGate
+from parakh.caller.realdata import RealDataGate, step_held
 from parakh.caller.recorder import Recorder
 from parakh.caller.turns import Action, TurnMachine, TurnState
 from parakh.scenario import Scenario
@@ -42,7 +42,7 @@ from parakh.transport.codec import (
     ProtocolError,
     RtviRepeats,
 )
-from parakh.transport.ws import AgentConnection, AgentUnreachable, check_agent_url
+from parakh.transport.ws import AgentConnection, AgentNotLocal, AgentUnreachable, check_agent_url
 
 CPU_WARN_PERCENT = 85.0
 _WAV_RATE = SAMPLE_RATE
@@ -138,9 +138,9 @@ class _Call:
     async def run(self, url: str) -> None:
         self._rec.event("call_start", self._t0, agent_rate=self._rate)
         try:
-            conn = await AgentConnection.connect(url)
-        except AgentUnreachable as exc:
-            self._end("agent_unreachable", str(exc))
+            conn = await AgentConnection.connect(url, local_only=self._gate is not None)
+        except (AgentUnreachable, AgentNotLocal) as exc:
+            self._end(exc.status, str(exc))
             self._log_end()
             return
         try:
@@ -180,15 +180,12 @@ class _Call:
             if now >= next_cpu_ns:
                 self.cpu_max = max(self.cpu_max, psutil.cpu_percent(interval=None))
                 next_cpu_ns = now + _NS_PER_S
-            if self._gate is not None:
-                state = self._gate.poll()
-                if state == "refused":
-                    self._end("real_data_refused", self._gate.warning)
-                    return
-                if state == "pending":  # hold the turn: bed frames only, the turn machine waits
-                    await self._send_frame(conn)
-                    continue
-            action = self._step(now)
+            state = "open" if self._gate is None else self._gate.poll()
+            if state == "refused" and self._gate is not None:
+                self._end("real_data_refused", self._gate.warning)
+                return
+            # While pending, a turn the machine would start is taken back: it waits.
+            action = step_held(self.machine, self._step, now, hold=state == "pending")
             if action.kind == "finish":
                 self._end("completed")
                 return

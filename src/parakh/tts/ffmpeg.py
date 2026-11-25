@@ -45,6 +45,9 @@ def _decode(source: str, data: bytes | None, rate: int) -> PCM:
             "-loglevel",
             "error",
             "-nostdin",
+            # A playlist or concat file among the recordings must not reach the network.
+            "-protocol_whitelist",
+            "file,pipe",
             "-i",
             source,
             "-f",

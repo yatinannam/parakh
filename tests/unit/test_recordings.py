@@ -1,5 +1,6 @@
 """Real recordings: found by name, decoded to 16 kHz mono, checked before any call."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -144,3 +145,47 @@ def test_status_command_exit_codes(tmp_path: Path) -> None:
     fill(root, [4])
     ok = CliRunner().invoke(app, args)
     assert ok.exit_code == 0, ok.output
+
+
+def test_replaced_take_with_an_older_mtime_is_not_served_from_the_cache(tmp_path: Path) -> None:
+    scenario, root, _ = setup(tmp_path)
+    fill(root, [1, 2, 3, 4])
+    source = root / "rec-real-01" / "turn-01.wav"
+    old_mtime = source.stat().st_mtime_ns
+    first = load_recorded_clips(scenario, root)[0]
+    make_audio(source, source="sine=frequency=300:duration=2")
+    os.utime(source, ns=(old_mtime - 10_000_000_000, old_mtime - 10_000_000_000))
+    second = load_recorded_clips(scenario, root)[0]
+    assert second.duration_ms > first.duration_ms + 500
+    assert second.sha256 != first.sha256
+
+
+def test_decode_allows_only_file_and_pipe_protocols(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario, root, _ = setup(tmp_path)
+    fill(root, [1, 2, 3, 4])
+    seen: list[list[str]] = []
+    real_run = subprocess.run
+
+    def spy(cmd: list[str], *a: object, **k: object):
+        seen.append(cmd)
+        return real_run(cmd, *a, **k)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    load_recorded_clips(scenario, root)
+    assert seen
+    for cmd in seen:
+        assert cmd[cmd.index("-protocol_whitelist") + 1] == "file,pipe"
+        assert cmd.index("-protocol_whitelist") < cmd.index("-i")
+
+
+def test_a_playlist_cannot_make_ffmpeg_fetch_from_the_network(tmp_path: Path) -> None:
+    scenario, root, _ = setup(tmp_path)
+    fill(root, [1, 2, 3, 4])
+    playlist = root / "rec-real-01" / "turn-02.m3u8"
+    (root / "rec-real-01" / "turn-02.wav").unlink()
+    lines = ["#EXTM3U", "#EXTINF:1,", "http://127.0.0.1:9/x.ts", ""]
+    playlist.write_text("\n".join(lines), encoding="utf-8")
+    with pytest.raises(RecordingError, match=r"cannot decode .*turn-02\.m3u8"):
+        load_recorded_clips(scenario, root)

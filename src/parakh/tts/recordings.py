@@ -99,7 +99,13 @@ def _cache_path(path: Path, number: int) -> Path:
 
 def _clip(path: Path, number: int) -> CallerClip:
     cache = _cache_path(path, number)
-    if not (cache.is_file() and cache.stat().st_mtime_ns >= path.stat().st_mtime_ns):
+    key_file = cache.with_suffix(".sha256")
+    source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        fresh = cache.is_file() and key_file.read_text(encoding="ascii") == source_sha
+    except OSError:
+        fresh = False
+    if not fresh:
         try:
             decoded = decode_file_to_pcm16(path, SAMPLE_RATE)
         except RuntimeError as exc:
@@ -110,6 +116,7 @@ def _clip(path: Path, number: int) -> CallerClip:
         if len(pcm) == 0:
             raise RecordingError(f"{path} is silent (nothing above -45 dBFS); record it again")
         write_wav(cache, pcm, SAMPLE_RATE)
+        key_file.write_text(source_sha, encoding="ascii")
     pcm, rate = read_wav(cache)
     return CallerClip(
         turn_index=number - 1,

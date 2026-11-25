@@ -82,6 +82,10 @@ class FakeBehaviour:
     vad_dbfs: float = SPEECH_DBFS
     received: list[tuple[int, int]] = field(default_factory=list)
     received_dbfs: list[float] = field(default_factory=list)  # level of each received frame
+    # agent_info_delay_ms: send agent_info this long after connect (after the greeting)
+    # instead of at once; frames_at_info is how many caller frames had arrived by then.
+    agent_info_delay_ms: int = 0
+    frames_at_info: int | None = None
     yield_after_ms: int | None = None
     send_interruption: bool = False
     user_started: bool = False
@@ -160,7 +164,9 @@ class _Session:
                 return
             if b.send_garbage:
                 await self._ws.send(GARBAGE)
-            if b.agent_info is not None:
+            if b.agent_info is not None and b.agent_info_delay_ms > 0:
+                self._spawn(self._send_info_later())
+            elif b.agent_info is not None:
                 await self._ws.send(_rtvi("server-message", {"agent_info": b.agent_info}))
             if b.greet_ms is not None:
                 self._spawn(self._greet(b.greet_ms))
@@ -206,6 +212,11 @@ class _Session:
 
     async def _send(self, message: bytes) -> None:
         await self._ws.send(message)
+
+    async def _send_info_later(self) -> None:
+        await _sleep_until(self._start_ns + self._b.agent_info_delay_ms * _NS_PER_MS)
+        self._b.frames_at_info = len(self._b.received_dbfs)
+        await self._ws.send(_rtvi("server-message", {"agent_info": self._b.agent_info}))
 
     async def _yield(self, at_ns: int) -> None:
         await _sleep_until(at_ns)

@@ -69,7 +69,7 @@ uv run --group agent python -m agents.clinic_agent --profile hi --stt local --po
 
 - `--profile hi` is the Hindi profile, which matches the four scenarios.
 - `--stt local` runs faster-whisper small on the CPU, and reports `stt_model` as `local:...` in its first message. The first start downloads the model once, then it works offline.
-- The agent still sends text to Groq for its replies (its LLM). It does not send audio.
+- The agent still sends text to Groq for its replies (its LLM): the transcript of what you said goes to Groq. The audio does not. See "What stays on this laptop".
 - It holds the heavy-model lock, so do not run it together with Parler or another Whisper job.
 
 ## 5. Run with `--real`
@@ -86,9 +86,10 @@ Run the four scenarios one by one. Presets work as usual (`--preset phone`, and 
 
 ## What stays on this laptop
 
-- **The agent must be on this machine.** `--real` accepts only an agent URL whose host is `127.0.0.1`, `localhost` or `::1`. Any other URL stops the run before anything is written.
+- **The agent must be on this machine.** `--real` accepts only an agent URL whose host is `127.0.0.1`, `localhost` or `::1`. Any other URL stops the run before anything is written. Parakh also refuses to follow a redirect, and after connecting it checks that the other end of the socket is a loopback address. If the peer is anywhere else, the run ends `real_data_refused` and no audio has been sent.
+- **Never use `--real` through a forwarded port.** An `ssh -L` tunnel or any port forward makes a remote agent look like `127.0.0.1`. Parakh cannot see past it. Run the agent on this laptop only.
 - **The agent must prove its speech recognition is local.** Parakh plays your recording only after the agent's first message reports an `stt_model` that starts with `local:`. Until then, and always when the agent reports another model or sends no message within 5 seconds, Parakh sends silence instead. The run then ends with status `real_data_refused`, exit code 2 and a warning such as `real data refused: agent stt_model 'whisper-large-v3-turbo' is not local`.
+- **The transcript of your recording goes to Groq.** The audio never leaves the laptop, but the agent's local speech recognition turns it into text, and the agent's Groq LLM receives that text to write its replies. This is by design (D10). It includes anything else the microphone heard, such as another person talking. Record in a quiet room with no other voices, and say only the scripted line.
 - **No synthesis.** The recordings never go to edge-tts. Only the scripted text of the noise babble (synthetic) can.
-- **No judge.** A recording can hold more than the script, such as a voice in the room. Parakh sends none of it to the Groq or Gemini judge.
+- **No judge.** Parakh adds nothing further: it sends none of the recording, its transcript or the agent's replies to the Groq or Gemini judge. The judge is skipped.
 - **No upload and no commit.** `data/real/` is in `.gitignore`. The run directory under `runs/` holds `caller.wav`, which is your voice, and is gitignored too. Do not copy it into the repository or share it.
-- **Remote transcripts.** Because the agent's STT is local, your audio is never sent to Groq. The agent's own LLM sees only the transcript text.

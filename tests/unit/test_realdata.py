@@ -1,13 +1,19 @@
 """The real-data gate: recorded audio goes only to an agent that proved its STT is local."""
 
-from typing import Any
+import asyncio
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from parakh.audio import PCM
 from parakh.caller.realdata import REAL_INFO_TIMEOUT_S, RealDataGate
-from parakh.transport.ws import check_local_agent_url
+from parakh.transport.ws import (
+    AgentConnection,
+    AgentNotLocal,
+    _peer_is_loopback,
+    check_local_agent_url,
+)
 
 
 class Clock:
@@ -106,3 +112,33 @@ def test_refusal_message_redacts_credentials() -> None:
     assert "secret" not in str(info.value)
     assert "token" not in str(info.value)
     assert str(info.value).endswith("got ws://10.0.0.5:8765/p")
+
+
+class _Transport:
+    def __init__(self, peer: object) -> None:
+        self._peer = peer
+
+    def get_extra_info(self, _name: str) -> object:
+        return self._peer
+
+
+class _Ws:
+    def __init__(self, peer: object) -> None:
+        self.transport = _Transport(peer)
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "::ffff:127.0.0.1"])
+def test_loopback_peers_pass(host: str) -> None:
+    assert _peer_is_loopback(cast(Any, _Ws((host, 1)))) is None
+
+
+@pytest.mark.parametrize(
+    "peer", [("10.0.0.5", 1), ("fe80::1%eth0", 1), ("::ffff:10.0.0.5", 1), None]
+)
+def test_other_peers_are_named(peer: object) -> None:
+    assert _peer_is_loopback(cast(Any, _Ws(peer))) is not None
+
+
+def test_local_only_connect_refuses_a_remote_host_without_connecting() -> None:
+    with pytest.raises(AgentNotLocal, match="real data refused: agent ws://10.0.0.5:1 is not on"):
+        asyncio.run(AgentConnection.connect("ws://10.0.0.5:1", local_only=True))
