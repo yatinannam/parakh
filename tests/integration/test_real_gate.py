@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from parakh.audio import FRAME_MS
 from parakh.caller.driver import run_call
 from parakh.caller.recorder import read_events
 from tests.integration.fake_agent import FakeBehaviour, fake_agent
-from tests.integration.test_driver import _line, _scenario, _write_clips
+from tests.integration.test_driver import CLIP_MS, _line, _scenario, _write_clips
 
 pytestmark = pytest.mark.integration
 
@@ -66,7 +67,7 @@ async def test_remote_url_is_refused_inside_the_driver(tmp_path: Path) -> None:
 
 
 async def test_first_turn_waits_for_a_late_agent_info(tmp_path: Path) -> None:
-    behaviour = FakeBehaviour(agent_info=LOCAL, agent_info_delay_ms=1000, greet_ms=300)
+    behaviour = FakeBehaviour(agent_info=LOCAL, agent_info_delay_ms=2000, greet_ms=300)
     base = tmp_path / "dir with space"
     clips = _write_clips(base / "clips", 2)
     scenario = _scenario(2, True, 20.0)
@@ -78,5 +79,10 @@ async def test_first_turn_waits_for_a_late_agent_info(tmp_path: Path) -> None:
     assert cut is not None and cut > 20  # the caller was streaming (bed) before the info
     assert max(behaviour.received_dbfs[:cut]) <= -45.0  # no recorded audio before it
     loud_after = sum(1 for level in behaviour.received_dbfs[cut:] if level > -45.0)
-    assert loud_after >= 2 * 15  # both 400 ms turns then played in full, not as silence
+    # Every loud frame of both 400 ms turns arrived: the held turn played in full.
+    assert loud_after == 2 * (CLIP_MS // FRAME_MS)
     assert result.turns_started == 2
+    events = read_events(result.run_dir)
+    info_ms = next(e["t_ms"] for e in events if e["kind"] == "agent_info")
+    first_turn_ms = next(e["t_ms"] for e in events if e["kind"] == "caller_turn_start")
+    assert first_turn_ms >= info_ms  # the turn started only after the gate could open
