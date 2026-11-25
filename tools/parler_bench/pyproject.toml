@@ -1,0 +1,32 @@
+[project]
+name = "parler-bench"
+version = "0.0.1"
+description = "Isolated Indic Parler-TTS benchmark for Parakh. Never part of the main lock or CI."
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+dependencies = [
+    "parler-tts @ git+https://github.com/huggingface/parler-tts.git@d108732cd57788ec86bc857d99a6cabd66663d68",
+    "torch",
+    "soundfile>=0.12",
+    "psutil>=5.9",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["parler_bench"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

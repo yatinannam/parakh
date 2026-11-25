@@ -1,0 +1,24 @@
+# Synthetic clinic lines only. The first is the warm-up and is excluded from the RTF.
+# Speakers (Rohit hi, Suresh kn, Jaya ta) are the ones the ai4bharat Space uses per language.
+sentences:
+  - language: en
+    text: "Hello, I would like to book an appointment with Doctor Rao for tomorrow."
+    description: "A female speaker delivers her words at a moderate pace with very clear audio and no background noise."
+  - language: hi
+    text: "नमस्ते, मुझे कल डॉक्टर राव के साथ अपॉइंटमेंट चाहिए।"
+    description: "Rohit speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."
+  - language: hi
+    text: "मेरा नंबर नौ सात तीन नौ, दो शून्य एक, आठ चार छह है।"
+    description: "Rohit speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."
+  - language: kn
+    text: "ನಮಸ್ಕಾರ, ನಾಳೆ ಡಾಕ್ಟರ್ ರಾವ್ ಜೊತೆ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬೇಕು."
+    description: "Suresh speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."
+  - language: kn
+    text: "ನಾಳೆ ಬೆಳಿಗ್ಗೆ ಹತ್ತು ಗಂಟೆಗೆ ಬರಬಹುದಾ?"
+    description: "Suresh speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."
+  - language: ta
+    text: "வணக்கம், நாளைக்கு டாக்டர் ராவ் கிட்ட அப்பாயின்ட்மெண்ட் வேணும்."
+    description: "Jaya speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."
+  - language: ta
+    text: "நாளை மாலை நான்கு மணிக்கு வரலாமா?"
+    description: "Jaya speaks at a moderate pace in a calm, neutral voice. The recording is very high quality with no background noise."

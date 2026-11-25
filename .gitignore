@@ -26,3 +26,7 @@ data/real/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Parler benchmark (isolated env and output)
+tools/parler_bench/.venv/
+tools/parler_bench/out/

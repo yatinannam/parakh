@@ -71,6 +71,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
 include = ["src", "tools", "tests", "agents"]
-exclude = ["tools/calibrate_eval"]
+exclude = ["tools/calibrate_eval", "tools/parler_bench"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
