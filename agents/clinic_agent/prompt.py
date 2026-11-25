@@ -20,6 +20,24 @@ REPLY_LANGUAGES = {
     "ta": "English, Tamil or Tamil-English",
 }
 
+# The profile's edge-tts voice reads only these scripts. Whisper sometimes writes the caller in
+# another script despite the language hint (Urdu for Tamil "seri"), and the LLM then mirrored it,
+# which left the voice with nothing it could say (EC-92).
+REPLY_SCRIPTS = {
+    "hi": "Devanagari or Latin script",
+    "kn": "Kannada or Latin script",
+    "ta": "Tamil or Latin script",
+}
+
+
+def script_rule(profile: str) -> str:
+    scripts = REPLY_SCRIPTS[profile]
+    return (
+        f"Write every reply in {scripts} only, because the voice cannot read other scripts. "
+        "If the caller's words reach you in another script, such as Arabic, treat it as a "
+        f"transcription error and still reply in {scripts}."
+    )
+
 
 def system_prompt(config: AgentConfig) -> str:
     today = datetime.fromisoformat(config.clock).date().isoformat()
@@ -38,6 +56,7 @@ Use the available_slots tool to check times, then the book_appointment tool to b
 Dates go to the tools as YYYY-MM-DD and times as HH:MM in 24-hour format.
 Before you book, read the booking back (doctor, date, time, phone) and ask the caller to confirm.
 Reply in the caller's language style: {REPLY_LANGUAGES[config.profile]}, matching how they speak.
+{script_rule(config.profile)}
 {DOCTOR_RULE}
 Keep every reply short, one or two sentences, because it is spoken aloud.
 {NEVER_END}

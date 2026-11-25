@@ -46,3 +46,22 @@ def test_prompt_replies_in_profile_languages(profile: str, phrase: str) -> None:
     assert f"Reply in the caller's language style: {phrase}, matching" in prompt
     if profile != "hi":
         assert "Hindi" not in prompt
+
+
+@pytest.mark.parametrize(
+    ("profile", "scripts"),
+    [
+        ("hi", "Devanagari or Latin script"),
+        ("kn", "Kannada or Latin script"),
+        ("ta", "Tamil or Latin script"),
+    ],
+)
+def test_prompt_keeps_replies_in_the_voice_scripts(profile: str, scripts: str) -> None:
+    # M3b: Whisper wrote "Seri, thank you, bye" in Urdu script under the ta hint, the LLM
+    # replied in Hindi, and the Tamil voice returned no audio (EC-92).
+    prompt = system_prompt(load_config(profile=profile))
+    assert f"Write every reply in {scripts} only, because the voice cannot read other " in prompt
+    assert (
+        "If the caller's words reach you in another script, such as Arabic, treat it as a "
+        f"transcription error and still reply in {scripts}." in prompt
+    )
