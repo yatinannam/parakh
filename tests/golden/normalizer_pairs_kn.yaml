@@ -8,9 +8,10 @@
 #   number    number words, digit groups and Kannada numerals
 #   no_match  words that must stay distinct
 #
-# Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
-# not from a Whisper transcript. No Whisper transcript of Kannada exists yet; live runs add
-# observed pairs later.
+# Pairs marked "textbook" come from the M3b scenario vocabulary and common spellings. Pairs
+# marked "observed" come from how Groq Whisper (language kn) wrote the synthetic caller in
+# the M3b clean runs. Only spellings of the word that was said become pairs; a transcript of
+# a different word (Nail for naale, Allah for illa) is a recognition error, not a pair.
 #
 # A pair the normaliser gets wrong goes to known_gaps with its reason; each known gap is an
 # xfail(strict=True) test, so fixing one fails the suite until the pair moves up. Never
@@ -133,6 +134,24 @@ must_match:
   - ["nooru ippattu", "120", number]  # textbook
   - ["ನೂರು ಐದು", "105", number]  # textbook
   - ["ಎರಡು ನೂರು", "200", number]  # textbook
+  # --- observed in the M3b live runs ---
+  - ["beku", "BQ", variant]  # observed: Whisper writes beku as the letters BQ
+  - ["appointment beku", "appointment bq.", variant]  # observed
+  - ["eradu", "ಎರ್ಡು", number]  # observed: the spoken erdu
+  - ["jotege", "jyotage", variant]  # observed
+  - ["dhanyavaada", "Dhanyawada", variant]  # observed
+  - ["swalpa", "Svalpa", variant]  # observed
+  - ["rao", "Rav", variant]  # observed
+  - ["bye", "Bay", variant]  # observed
+  - ["haan sari thank you bye", "Han, Sari Thank you, bye.", variant]  # observed
+  - ["haan ega sari thank you bye", "Han eegah sari thank you bye", variant]  # observed
+  - ["namaskara", "ನಮಸ್ಕರಾ", script]  # observed
+  - ["ನಾಳೆ ಬೆಳಗ್ಗೆ ಹತ್ತು ಗಂಟೆಗೆ", "ನಾಳೆ ಬಳಗೆ ಹತ್ತು ಗಂಟೆಗೆ", script]  # observed
+  - ["doctor", "ಡಾಕ್ಟರ", loanword]  # observed
+  - ["elu", "ಎಳು", number]  # observed
+  - ["aidu", "ಆಯಿದು", number]  # observed
+  - ["nine thirty in the morning please", "9.30 in the morning, please.", number]  # observed
+  - ["9739 201 846", "9739-201-846", number]  # observed
 
 must_not_match:
   - ["ಬೇಕು", "ಬೇಡ", no_match]  # textbook: want, don't want
@@ -168,3 +187,6 @@ known_gaps:
   - { a: "ಕಾಲು", b: "ಕಲ್ಲು", expect: no_match, why: "textbook; vowel length and double letters collapse, so ಕಾಲು (leg) and ಕಲ್ಲು (stone) both read kalu" }
   - { a: "ಕತ್ತು", b: "ಕಟ್ಟು", expect: no_match, why: "textbook; ITRANS case is lowercased and doubles collapse, so the dental ತ and retroflex ಟ merge: ಕತ್ತು (neck) and ಕಟ್ಟು (tie) both read katu (R9)" }
   - { a: "ಹಾಲು", b: "ಹಾಳು", expect: no_match, why: "textbook; ಳ reads L, which lowercases to l, so ಹಾಲು (milk) and ಹಾಳು (ruin) both read halu (R9)" }
+  - { a: "jotege", b: "jyotaj", expect: match, why: "observed; Whisper's Roman jyotaj drops the final e and writes g as j, so the skeleton jtj is not jtg" }
+  - { a: "rao hattira", b: "ರಾವಹತ್ತಿರ", expect: match, why: "observed; Whisper joined the two words, and words are compared one by one" }
+  - { a: "8095127364", b: "8095. 1 to 7 3 6 4", expect: match, why: "observed; Whisper wrote English two as to, a common English word, so it is not a number word" }

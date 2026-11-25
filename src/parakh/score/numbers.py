@@ -147,7 +147,7 @@ HINDI: dict[int, tuple[str, ...]] = {
 KANNADA: dict[int, tuple[str, ...]] = {
     0: ("sonne", "ಸೊನ್ನೆ"),
     1: ("ondu", "ಒಂದು"),
-    2: ("eradu", "yeradu", "ಎರಡು"),
+    2: ("eradu", "yeradu", "erdu", "ಎರಡು", "ಎರ್ಡು"),  # erdu: the spoken form, observed in M3b
     3: ("mooru", "ಮೂರು"),
     4: ("naalku", "naaku", "ನಾಲ್ಕು", "ನಾಕು"),
     5: ("aidu", "ayidu", "ಐದು"),
@@ -180,7 +180,7 @@ KANNADA_TENS: dict[int, tuple[str, ...]] = {
 # Tamil 0-19: Roman, then Tamil script, colloquial forms (onnu, rendu) beside the written
 # ones (ondru, irandu). nooru (100) is a hundred word, as in Kannada.
 TAMIL: dict[int, tuple[str, ...]] = {
-    0: ("poojyam", "poojiyam", "பூஜ்யம்", "பூஜ்ஜியம்"),
+    0: ("poojyam", "poojiyam", "பூஜ்யம்", "பூஜ்ஜியம்", "பூஜம்"),  # பூஜம்: observed in M3b
     1: ("onnu", "ondru", "onru", "ஒன்று", "ஒண்ணு"),
     2: ("rendu", "irandu", "இரண்டு", "ரெண்டு"),
     3: ("moonu", "moondru", "moonru", "மூன்று", "மூணு"),

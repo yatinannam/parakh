@@ -26,6 +26,8 @@ KANNADA_VARIANTS: dict[str, str] = {
     "ega": "iga",  # ಈಗ, eega
     "ayar": "ier",  # ಅಯ್ಯರ್ for the name Iyer
     "aiar": "ier",  # ಐಯರ್
+    # Observed in the M3b live runs (Groq Whisper, language kn).
+    "bk": "beku",  # BQ, the letters Whisper writes for beku
 }
 TAMIL_VARIANTS: dict[str, str] = {
     "rav": "rao",  # ராவ்
@@ -45,4 +47,8 @@ TAMIL_VARIANTS: dict[str, str] = {
     "tamil": "thamijh",  # the English name; தமிழ், thamizh (zh reads jh)
     "ayar": "ier",  # அய்யர் for the name Iyer
     "aiar": "ier",  # ஐயர்
+    # Observed in the M3b live runs (Groq Whisper, language ta).
+    "kalaiyil": "kalaila",  # காலையில், the written form of kaalaila
+    "kalaiyila": "kalaila",  # காலையிலா
+    "kalaiala": "kalaila",  # காலையல
 }

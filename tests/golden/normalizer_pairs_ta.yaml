@@ -15,9 +15,10 @@
 # voicing (do and to, bill and pill, drug and truck). Those are known gaps (ruling R8), as is
 # ள read as l, like ல (ruling R9).
 #
-# Every pair is "textbook": it comes from the M3b scenario vocabulary and common spellings,
-# not from a Whisper transcript. No Whisper transcript of Tamil exists yet; live runs add
-# observed pairs later.
+# Pairs marked "textbook" come from the M3b scenario vocabulary and common spellings. Pairs
+# marked "observed" come from how Groq Whisper (language ta) wrote the synthetic caller in
+# the M3b clean runs. Only spellings of the word that was said become pairs; a transcript of
+# a different word (சிரி, laugh, for seri; and for en) is a recognition error, not a pair.
 #
 # A pair the normaliser gets wrong goes to known_gaps with its reason; each known gap is an
 # xfail(strict=True) test, so fixing one fails the suite until the pair moves up. Never
@@ -140,6 +141,25 @@ must_match:
   - ["nooru irubadhu", "120", number]  # textbook
   - ["நூறு அஞ்சு", "105", number]  # textbook
   - ["இரண்டு நூறு", "200", number]  # textbook
+  # --- observed in the M3b live runs ---
+  - ["kaalaila", "காலையில்", script]  # observed: the written form of kaalaila
+  - ["kaalaila", "காலையிலா", script]  # observed
+  - ["kaalaila", "காலையல", script]  # observed
+  - ["naalaikku kaalaila pathu manikku", "நாலைக்கு காலையல பாது மணிக்கு", script]  # observed
+  - ["poojyam", "பூஜம்", number]  # observed
+  - ["kitta", "கிட்டா", script]  # observed
+  - ["venum", "வேணம்", script]  # observed
+  - ["naalaikku", "நாலைக்கு", script]  # observed
+  - ["naalaikku", "நாலக்கு", script]  # observed
+  - ["naalai marunaal", "நாலாயி மருனால்", script]  # observed
+  - ["paiyanukku", "पयानुको", script]  # observed, in Devanagari under the ta hint
+  - ["doctor", "டோக்டர்", loanword]  # observed
+  - ["pathu", "பாது", number]  # observed
+  - ["aaru", "அரு", number]  # observed
+  - ["moonu", "munu", number]  # observed
+  - ["onru", "ஓன்று", number]  # observed
+  - ["moonru", "முன்று", number]  # observed
+  - ["three in the afternoon", "3 in the afternoon", number]  # observed
 
 must_not_match:
   - ["venum", "vendaam", no_match]  # textbook: want, don't want
@@ -184,4 +204,14 @@ known_gaps:
   - { a: "do", b: "to", expect: no_match, why: "textbook; the ta-en voicing collapse (d to t) merges English words that differ only in voicing (R8)" }
   - { a: "bill", b: "pill", expect: no_match, why: "textbook; the ta-en voicing collapse (b to p) merges English words that differ only in voicing (R8)" }
   - { a: "drug", b: "truck", expect: no_match, why: "textbook; the ta-en voicing collapse (d to t, g to k) merges English words that differ only in voicing (R8)" }
+  - { a: "kitta", b: "கித்தா", expect: match, why: "observed; Whisper wrote the dental த for the retroflex ட, and ta-en keeps th and t apart (R6)" }
+  - { a: "doctor", b: "டாக்தர", expect: match, why: "observed; Whisper wrote the dental த for the retroflex ட (R6) and added a final a" }
+  - { a: "ettu", b: "ஏத்து", expect: match, why: "observed; the dental த for ட (R6) gives ethu, also the key of எது (which), so it cannot be a number word" }
+  - { a: "nandri", b: "நான்தரி", expect: match, why: "observed; Whisper wrote ன்ற as ன்தர, so the key nanthari keeps th and an extra a, and the skeleton nthr is not ntr" }
+  - { a: "pathu", b: "பத்த", expect: match, why: "observed; without the final u, பத்த reads patha, also the key of பாத்தா (if you see), since vowel length collapses, so it is not a number word" }
+  - { a: "number", b: "No.", expect: match, why: "observed; Whisper wrote the abbreviation No., and a variant no to number would merge the English no" }
+  - { a: "bye", b: "பாய்", expect: match, why: "observed; பாய் reads pay, the key of பாய் (mat) and of the English pay, so a variant pay to pai would merge them" }
+  - { a: "naalu manikku", b: "நாலுமனிக்கு", expect: match, why: "observed; Whisper joined the two words, and words are compared one by one" }
+  - { a: "rao kitta", b: "ராவுக்கிட்ட", expect: match, why: "observed; Whisper joined the two words, and words are compared one by one" }
+  - { a: "venum", b: "வேணாம்", expect: no_match, why: "found with the observed வேணம்; vowel length collapses, so வேணாம் (do not want) reads venam, and its skeleton vnm matches venum (want)" }
   - { a: "பள்ளி", b: "பல்லி", expect: no_match, why: "textbook; ள and ல both read l, so பள்ளி (school) and பல்லி (lizard) both read pali (R9)" }
