@@ -2,7 +2,7 @@
 
 This runbook covers:
 - Running the Kannada-English and Tamil-English packs against a clinic agent with the matching language profile.
-- Running your real recordings through a local-STT agent (pending: see section 6).
+- Running your real recordings through a local-STT agent (section 6).
 - The Indic Parler-TTS benchmark (pending: see section 7).
 - What the first Kannada and Tamil runs showed, and the fixes they led to.
 
@@ -75,6 +75,8 @@ Check free memory before each batch. Stop the agent between packs and start it a
 | Agent STT (Groq Whisper requests in the agent logs) | Kannada pack 35, Tamil pack 58, re-runs 4 and 9 (estimate: 72 per pack) |
 | Judge | 14 judged, 15,155 tokens, about 1,080 per call, 1 attempt each, no fallback |
 | Checks of the agent fix (section 5) | 15 LLM requests on the agent model, 2 STT requests |
+| Real runs, 2026-11-26 (13 calls: the 8 in section 6, the 4 of the slow first batch, 1 failed try) | 92 agent LLM requests, 82,341 tokens; STT local, so no Groq STT request; no judge |
+| Synthetic runs through the local-STT agent, 2026-11-26 (8 calls) | 69 agent LLM requests, 66,522 tokens; 8 judged, 8,948 tokens, 1 attempt each |
 | HTTP 429 or 402 | none |
 
 The agent's VAD split the Tamil caller's turns into more pieces than the Kannada caller's, so the Tamil pack made more STT requests for the same number of turns.
@@ -158,20 +160,48 @@ The controller read 8 judged calls, chosen for low language-match scores.
 
 So the judge lowered language match for a Tamil reply in the caller's language once. Twice it scored English replies to callers who used English words below the rubric's 3. The cause is the rubric: `judge-v1` exempts only Hinglish mixing and script changes. **Flag for `judge-v2`:** extend that sentence to Kannada-English and Tamil-English, and to the Kannada and Tamil scripts. Yatin confirms later.
 
-## 6. Real recordings (pending)
+## 6. Real recordings
 
-Status: not run yet. It waits for two things from Yatin:
-- Clips for the four Hinglish scenarios in [`record-real.md`](record-real.md): `clinic-book`, `clinic-book-iyer`, `clinic-hindi-numbers` and `clinic-correction`.
-- His OK that the agent's Groq LLM receives the agent's transcript of his voice. The audio itself never leaves the laptop (D10).
+Yatin recorded the four Hinglish scenarios of [`record-real.md`](record-real.md) on 2026-11-26 (16 clips, Windows Sound Recorder, `.m4a` at 48 kHz stereo). He agreed that the agent's Groq LLM receives the agent's transcript of his voice. The audio never left the laptop (D10).
 
-M3b stays open until these runs are done. The procedure:
+The procedure:
 1. Check each scenario's clips: `uv run parakh recordings status scenarios/hinglish/<file>`. It exits 2 while a turn is missing or silent.
-2. Close Chrome if free memory is under about 3 GB: faster-whisper `small` loads in the agent process.
-3. Start the agent with local STT: `uv run --group agent python -m agents.clinic_agent --profile hi --stt local`. It takes the heavy-model lock, so no Parler process may run at the same time.
-4. Run each scenario under `clean` and `phone`: `uv run parakh run scenarios/hinglish/<file> --agent ws://127.0.0.1:8765 --real --preset clean --preset phone`.
-5. Expect completed runs with `real_audio: true` and the judge skipped (D20). The agent log must show local STT and no Groq STT request.
+2. Check the content as well. `recordings status` cannot tell a clip of the wrong line. On 2026-11-26 the `hindi-numbers` and `correction` folders held each other's clips. A local faster-whisper pass under `parakh heavy run` found it, and the folders were swapped back.
+3. Start the agent with local STT: `uv run --group agent python -m agents.clinic_agent --profile hi --stt local`. It takes the heavy-model lock, so no Parler process may run at the same time. It needs about 1.2 GB of free memory; Chrome stayed open.
+4. Run the scenarios under `clean` and `phone`: `uv run parakh run <folder> --agent ws://127.0.0.1:8765 --real --preset clean --preset phone`.
+5. Expect completed runs with `real_audio: true` and the judge skipped (D20). The agent log must show no Groq STT request.
 
-The results go here, next to the same scenarios' synthetic runs from M3a.
+**Local STT speed.** The first real batch (`bc457cf6`) ran faster-whisper `small` at its defaults. Each speech segment took 2.5 to 7.9 s to transcribe, which is slower than the speech itself. Both `book-iyer` calls ended `turn_timeout`, and transcripts landed after their call had ended. Once, "9,7,4,0" from the `book-iyer` clean call reached the agent during the next call. A measurement on the 16 clips, under the heavy-model lock, found the cause: Whisper's temperature fallback decodes a hallucinating clip up to six times.
+
+| Setting (small, int8) | Real-time factor | Worst clip | Loose WER on the 16 clips |
+|---|---|---|---|
+| Defaults: beam 5, temperature fallback, 4 threads | 2.77 | 10.7 | 67.5 % |
+| Temperature 0, no timestamps, 4 threads | 1.53 | 2.9 | 60.0 % |
+| Temperature 0, no timestamps, 8 threads | 1.09 | 2.1 | 60.0 % |
+| `base`, defaults | 1.02 | 11.2 | 76.3 % (4 Urdu-script turns) |
+
+`698042c` makes the last `small` row the agent's setting. With it, segments took at most 3.1 s in the real runs, and no transcript crossed a call boundary: the first transcript after each hang-up was the next call's opening line. One segment in the synthetic runs still took 10.1 s.
+
+**Results.** Each row compares the real run with a synthetic run of the same scenario through the same local-STT agent. The M3a synthetic runs used Groq Whisper, so they are not comparable here. Real runs skip the judge, so the judge mean is for the synthetic run only.
+
+| Scenario | Preset | Real run | Real loose WER % | Real p50 / p95 ms | Synthetic run | Synthetic loose WER % | Synthetic p50 / p95 ms | Synthetic judge mean |
+|---|---|---|---|---|---|---|---|---|
+| book | clean | `5ad1c9de/d76a5095` completed | 50.0 | 5374 / 5599 | `0c78254f/8b393d24` completed | 33.3 | 5468 / 6712 | 2.5 |
+| book | phone | `5ad1c9de/fce48c9f` completed | 63.3 | 4342 / 6243 | `0c78254f/84c2025f` completed | 40.0 | 6306 / 7216 | 2.8 |
+| book-iyer | clean | `5ad1c9de/079fd330` completed | 30.0 | 5529 / 6158 | `0c78254f/171b9dd3` completed | 23.3 | 4908 / 5634 | 2.0 |
+| book-iyer | phone | `5ad1c9de/1cbf699d` completed | 46.7 | 5558 / 6580 | `0c78254f/877012a3` completed | 30.0 | 4868 / 5345 | 2.5 |
+| correction | clean | `a388a2fc/037092b9` completed | 63.6 | 5347 / 7484 | `aa70170e/19eb4d2a` completed | 45.5 | 6037 / 7050 | 2.5 |
+| correction | phone | `a388a2fc/f94ad595` completed | 69.7 | 5386 / 6074 | `aa70170e/c6997745` turn_timeout | 39.4 | 5298 / 7967 | 2.5 |
+| hindi-numbers | clean | `a388a2fc/1f33cddc` completed | 77.8 | 6026 / 7289 | `aa70170e/680ccf1b` completed | 25.9 | 5678 / 6844 | 3.0 |
+| hindi-numbers | phone | `a388a2fc/3ed01278` completed | 88.9 | 5175 / 5858 | `aa70170e/a9b88696` completed | 33.3 | 6316 / 8758 | 3.2 |
+
+What the real runs showed:
+- **Real speech roughly doubles the loose WER.** The mean is 61.3 % against 33.8 % synthetic: 55.4 % against 32.0 % under `clean`, and 67.1 % against 35.7 % under `phone`.
+- **Hindi number words suffer most.** "nau aath saat" came back as "नो आद साथ", which the normaliser does not read as 9, 8, 7, so `hindi-numbers` scored 77.8 % and 88.9 % against 25.9 % and 33.3 % synthetic.
+- **Local `small` is far weaker than Groq's `whisper-large-v3-turbo`.** On synthetic audio, these scenarios scored 23 to 46 % locally, against a pack mean of 6.3 % with Groq in M3a. Real-run WER therefore measures the local model as much as the speech.
+- **Latency is set by local STT.** The p50 was 4.3 to 6.0 s for real and synthetic runs alike.
+- **Two failures came from the agent, not the recordings.** In `5ad1c9de/b4041497` (the first `book` clean try), Groq rejected the agent LLM's tool call (`attempted to call tool 'available_slots<|channel|>commentary'`), so the agent never replied; `--resume` re-ran it as `d76a5095`. In the synthetic `correction` phone call, a late local transcript ("3-4-4", the end of the number turn) counted as the caller speaking again and cancelled the agent's reply.
+- **The guarantees held.** All 8 real reports have `real_audio: true` and no judge, and the agent logs show no Groq STT request.
 
 ## 7. Indic Parler-TTS benchmark (pending)
 
@@ -190,6 +220,9 @@ The run, the thresholds and the ruling are in the M3b plan, Task 8. The verdict 
 - **`TTSSettings: the following fields are NOT_GIVEN` at agent start.** A harmless Pipecat 1.16.0 warning.
 - **Free memory is low.** On 2026-11-25 it fell to 1.3 GB during the Tamil runs, with Chrome holding 4.8 GB. The Groq-STT agent ran fine. Close Chrome before `--stt local` or a Parler run.
 - **Printing a report from Git Bash fails with `UnicodeEncodeError`.** Set `PYTHONIOENCODING=utf-8` first.
+- **A `--stt local` call ends `turn_timeout` and the agent log shows `ClinicLocalSTT#0 processing time` above about 4 s.** Local STT is falling behind the caller. Check that the agent runs `698042c` or later, and that no other heavy process holds the CPU.
+- **A call ends `turn_timeout` with `Tool call validation failed: attempted to call tool 'available_slots<|channel|>commentary'`.** Groq rejected a malformed tool call from `openai/gpt-oss-20b`. It happened once in 21 calls. Re-run the call with `--resume`.
+- **A real run scores very badly on one scenario only.** Check that the clips sit in the right scenario folder (section 6, step 2).
 
 ## Run log
 
@@ -205,3 +238,10 @@ The run, the thresholds and the ruling are in the M3b plan, Task 8. The verdict 
   - `cfb51c6c`: Kannada numbers, completed.
 - All 14 runs were rescored after `b3bfce0`.
 - `runs/m3b-kn/compare.html` and `runs/m3b-ta/compare.html`: each pack with its re-run, rescored.
+
+**2026-11-26**, Hindi agent with `--stt local`, Chrome open, 2.4 to 3.3 GB free before each batch:
+- `bc457cf6`, Parakh `c3fc352`, real, agent STT at faster-whisper defaults: book completed under `clean` and `phone`; book-iyer ended `turn_timeout` under both (local STT too slow).
+- `698042c`: the local STT speed fix.
+- `5ad1c9de`, real: book `phone` and book-iyer `clean` and `phone` completed. Book `clean` (`b4041497`) ended `turn_timeout` on the tool-call error and was re-run with `--resume` as `d76a5095`, completed.
+- `a388a2fc`, real: correction and hindi-numbers, `clean` and `phone`, all completed.
+- `0c78254f` and `aa70170e`, synthetic through the same agent: 7 completed; correction `phone` ended `turn_timeout` (a late transcript cancelled the reply).

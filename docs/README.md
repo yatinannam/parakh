@@ -18,7 +18,7 @@
 | [`runbooks/run-m1.md`](runbooks/run-m1.md) | M1 real run: start the clinic agent, run the Hinglish scenario, read the report, statuses, Groq budget, troubleshooting, run log. |
 | [`runbooks/run-m2.md`](runbooks/run-m2.md) | M2 run: the five presets, batch runs, the comparison page, what the M2 runs showed, Groq requests per run, troubleshooting, run log. |
 | [`runbooks/run-m3a.md`](runbooks/run-m3a.md) | M3a run: the 14-scenario Hinglish pack, the judge, resume, measured Groq use, what the runs showed, judge calibration, troubleshooting, run log. |
-| [`runbooks/run-m3b.md`](runbooks/run-m3b.md) | M3b run: the Kannada-English and Tamil-English packs, agent profiles, measured Groq use, what the runs showed (EC-92), normaliser feedback, judge spot check, real recordings and Parler (pending), troubleshooting, run log. |
+| [`runbooks/run-m3b.md`](runbooks/run-m3b.md) | M3b run: the Kannada-English and Tamil-English packs, agent profiles, measured Groq use, what the runs showed (EC-92), normaliser feedback, judge spot check, real recordings against synthetic runs through local STT, local STT speed, Parler (pending), troubleshooting, run log. |
 | [`reviews/2026-11-16-m0-review.md`](reviews/2026-11-16-m0-review.md) | M0 code review: findings fixed, minors deferred, rulings. |
 | [`reviews/2026-11-17-m1-review.md`](reviews/2026-11-17-m1-review.md) | M1 review: per-task outcomes, final review fixes, rulings, deferred findings, live-run notes. |
 | [`reviews/2026-11-21-m2-review.md`](reviews/2026-11-21-m2-review.md) | M2 review: per-task outcomes, the final review and its fixes, rulings, deferred findings (M3 start and later). |
