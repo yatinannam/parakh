@@ -5,6 +5,19 @@ import subprocess
 from parakh.report.model import JitterModel, LatencyStatsModel, Metrics, Report
 
 
+class FakeWhisperModel:
+    """Stands in for faster_whisper.WhisperModel: records how it was built and called."""
+
+    def __init__(self, model_size_or_path: str, **kwargs: object) -> None:
+        self.name = model_size_or_path
+        self.kwargs = kwargs
+        self.calls: list[dict[str, object]] = []
+
+    def transcribe(self, audio: object, **kwargs: object) -> tuple[list[object], None]:
+        self.calls.append(kwargs)
+        return [], None
+
+
 class FakeEngine:
     """TTS engine that returns a short sine-wave MP3 and counts calls."""
 

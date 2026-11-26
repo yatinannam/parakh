@@ -14,10 +14,20 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.whisper.stt import WhisperSTTService
+from pipecat.transcriptions.language import Language
+
+from tests.fakes import FakeWhisperModel
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
-    from agents.clinic_agent.reset import ClinicLocalSTT, ClinicSTT, ClinicVAD, ResettableSTTMixin
+    from agents.clinic_agent import reset as reset_module
+    from agents.clinic_agent.reset import (
+        LOCAL_CPU_THREADS,
+        ClinicLocalSTT,
+        ClinicSTT,
+        ClinicVAD,
+        ResettableSTTMixin,
+    )
 
 RATE = 16000
 WINDOW = 512
@@ -70,8 +80,8 @@ async def test_vad_reset_returns_to_quiet_without_stop_event(
 
 @pytest.fixture(params=[ClinicSTT, ClinicLocalSTT], ids=["groq", "local"])
 def stt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> ResettableSTTMixin:
-    # WhisperSTTService.__init__ calls _load(), which loads (and may download) the model.
-    monkeypatch.setattr(WhisperSTTService, "_load", lambda self: None)
+    # WhisperSTTService.__init__ calls _load(), which would load (and may download) the model.
+    monkeypatch.setattr(reset_module, "WhisperModel", FakeWhisperModel)
     if request.param is ClinicSTT:
         service: Any = ClinicSTT(api_key="test-key", sample_rate=RATE)
     else:
@@ -79,6 +89,38 @@ def stt(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Rese
     service._sample_rate = RATE  # set by StartFrame in a running pipeline
     service._speech_buffer.set_sample_rate(RATE)
     return service
+
+
+def _local_stt(monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(reset_module, "WhisperModel", FakeWhisperModel)
+    return ClinicLocalSTT(
+        device="cpu",
+        compute_type="int8",
+        settings=ClinicLocalSTT.Settings(model="small", language=Language("hi")),
+    )
+
+
+def test_local_stt_builds_the_model_with_more_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    # M3b: at faster-whisper's defaults, small ran 2.8 times slower than real time here.
+    model = _local_stt(monkeypatch)._model._model
+    assert model.name == "small"
+    assert model.kwargs == {
+        "device": "cpu",
+        "compute_type": "int8",
+        "cpu_threads": LOCAL_CPU_THREADS,
+    }
+
+
+async def test_local_stt_decodes_without_temperature_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _local_stt(monkeypatch)
+    frames = [f async for f in service.run_stt(b"\x00\x00" * RATE)]
+    assert not any(isinstance(f, TranscriptionFrame) for f in frames)
+    (call,) = service._model._model.calls
+    assert call["temperature"] == 0.0
+    assert call["without_timestamps"] is True
+    assert call["language"] == "hi"
 
 
 def test_reset_mixin_on_both_services() -> None:

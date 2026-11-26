@@ -13,12 +13,13 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frameworks.rtvi import RTVIProcessor, RTVIServerMessageFrame
 from pipecat.services.groq.llm import GroqLLMService
-from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.transcriptions.language import Language
 
+from agents.clinic_agent import reset as reset_module
 from agents.clinic_agent.config import load_config
 from agents.clinic_agent.reset import ClinicLocalSTT, ClinicSTT, ClinicVAD
 from agents.clinic_agent.tts_edge import EdgeTTSService
+from tests.fakes import FakeWhisperModel
 
 # Pipecat's websocket transport touches a websockets API that is deprecated upstream. The
 # warning fires at import and at transport construction; ignore exactly that message.
@@ -247,7 +248,7 @@ async def test_agent_info_has_language(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def no_whisper_load(monkeypatch: pytest.MonkeyPatch) -> None:
     # The constructor calls _load(), which would load or download the model.
-    monkeypatch.setattr(WhisperSTTService, "_load", lambda self: None)
+    monkeypatch.setattr(reset_module, "WhisperModel", FakeWhisperModel)
 
 
 @pytest.mark.parametrize(("profile", "language"), [("hi", "hi"), ("kn", "kn"), ("ta", "ta")])
