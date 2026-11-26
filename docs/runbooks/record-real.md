@@ -55,7 +55,10 @@ turn 02: MISSING  data/real/clinic-book-hinglish-01/turn-02.*  "..."
 unused: data/real/clinic-book-hinglish-01/turn-09.wav
 ```
 
-- It exits 0 when every turn is found, and 2 when any is missing.
+- It decodes every recording it finds, on this laptop only, and checks each one:
+  - `turn 03: ERROR  ...` means the file is silent or cannot be decoded. Record that turn again.
+  - `turn 02: CHECK  13 words in 1.7 s (7.8 words/s): too short for its line; ...` means the clip is far too short or too long for its line (outside 1.5 to 6 words per second, for lines of 4 words or more). It is often a clip of another line, or one saved in the wrong scenario folder. Listen to it before a run.
+- It exits 0 when every turn is found and usable, and 2 when any is missing, silent or undecodable. A `CHECK` line does not change the exit code.
 - `unused:` lists files that match no turn, such as a stray `turn-09.m4a` or a file with another name. They are never played.
 - Give it several scenarios, or a folder, to check them in one go.
 

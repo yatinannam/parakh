@@ -21,6 +21,12 @@ from parakh.tts.ffmpeg import decode_file_to_pcm16
 REAL_ROOT = Path("data/real")
 _TURN_FILE = re.compile(r"^turn-(\d+)\.[A-Za-z0-9]+$")
 
+# A clip's speaking pace against its line's word count. In M3b two scenario folders held each
+# other's clips, at 7.6 and 1.3 words per second; the right clips ran 2.0 to 3.8. Lines under
+# PACE_MIN_WORDS words vary too much to check.
+PACE_MIN_WORDS = 4
+PACE_WORDS_PER_S = (1.5, 6.0)
+
 
 class RecordingError(ValueError):
     """A recording is missing, ambiguous, undecodable or silent."""
@@ -91,6 +97,45 @@ def recording_status(scenario: Scenario, root: Path = REAL_ROOT) -> RecordingSta
         for i, (turn, path) in enumerate(zip(scenario.turns, paths, strict=True))
     ]
     return RecordingStatus(turns, unused)
+
+
+def pace_warning(say: str, speech_ms: int) -> str | None:
+    """Advice when a clip is far too short or too long for its line, else None."""
+    words = len(say.split())
+    if words < PACE_MIN_WORDS or speech_ms <= 0:
+        return None
+    rate = words * 1000 / speech_ms
+    low, high = PACE_WORDS_PER_S
+    head = f"{words} words in {speech_ms / 1000:.1f} s ({rate:.1f} words/s)"
+    if rate > high:
+        return f"{head}: too short for its line; is it the right line, or cut off?"
+    if rate < low:
+        return f"{head}: too long for its line; is it the right line, or a long pause?"
+    return None
+
+
+@dataclass(frozen=True)
+class TurnCheck:
+    error: str | None  # the clip cannot be used: undecodable or silent
+    warning: str | None  # the clip can be used, but its pace does not fit the line
+
+
+def check_recordings(scenario: Scenario, root: Path = REAL_ROOT) -> list[TurnCheck | None]:
+    """Decode (and cache) each turn's recording locally; None where a turn has none."""
+    checks: list[TurnCheck | None] = []
+    for index, (turn, path) in enumerate(
+        zip(scenario.turns, recording_paths(scenario, root), strict=True)
+    ):
+        if path is None:
+            checks.append(None)
+            continue
+        try:
+            clip = _clip(path, index + 1)
+        except RecordingError as exc:
+            checks.append(TurnCheck(error=str(exc), warning=None))
+            continue
+        checks.append(TurnCheck(error=None, warning=pace_warning(turn.say, clip.speech_end_ms)))
+    return checks
 
 
 def _cache_path(path: Path, number: int) -> Path:

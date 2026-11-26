@@ -14,6 +14,7 @@ from parakh.scenario import Scenario, load_scenario
 from parakh.tts.recordings import (
     RecordingError,
     load_recorded_clips,
+    pace_warning,
     recording_paths,
     recording_status,
 )
@@ -145,6 +146,54 @@ def test_status_command_exit_codes(tmp_path: Path) -> None:
     fill(root, [4])
     ok = CliRunner().invoke(app, args)
     assert ok.exit_code == 0, ok.output
+
+
+THIRTEEN = "Mera number hai nine six one one, two two three, three four four."
+SIX = "Gyarah baje ka time theek rahega."
+
+
+@pytest.mark.parametrize(
+    ("say", "speech_ms", "expect"),
+    [
+        (THIRTEEN, 4500, None),  # 2.9 words/s
+        (SIX, 1700, None),  # 3.5 words/s
+        (THIRTEEN, 1700, "too short for its line"),  # 7.6 words/s: the M3b swap
+        (SIX, 4500, "too long for its line"),  # 1.3 words/s: the M3b swap
+        ("Haan, theek hai.", 3000, None),  # under 4 words: not checked
+    ],
+)
+def test_pace_warning(say: str, speech_ms: int, expect: str | None) -> None:
+    warning = pace_warning(say, speech_ms)
+    if expect is None:
+        assert warning is None
+    else:
+        assert warning is not None and expect in warning
+
+
+def test_status_checks_pace_and_silence(tmp_path: Path) -> None:
+    _, root, file = setup(tmp_path)
+    file.write_text(
+        YAML.replace('"one"', f'"{THIRTEEN}"').replace('"two"', f'"{SIX}"'), encoding="utf-8"
+    )
+    folder = root / "rec-real-01"
+    make_audio(folder / "turn-01.wav")  # 13 words in 1 s
+    make_audio(folder / "turn-02.wav", source="sine=frequency=440:duration=5")  # 6 words in 5 s
+    fill(root, [3, 4])
+    args = ["recordings", "status", str(file), "--real-dir", str(root)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output  # a pace check is advice, not an error
+    checks = [line for line in result.output.splitlines() if " CHECK " in line]
+    assert len(checks) == 2
+    assert checks[0].startswith("turn 01: CHECK ") and "too short for its line" in checks[0]
+    assert checks[1].startswith("turn 02: CHECK ") and "too long for its line" in checks[1]
+
+    make_audio(folder / "turn-03.wav", source="anullsrc=r=48000:cl=stereo:d=1")
+    silent = CliRunner().invoke(app, args)
+    assert silent.exit_code == 2, silent.output
+    assert any(
+        line.startswith("turn 03: ERROR ") and "is silent" in line
+        for line in silent.output.splitlines()
+    )
 
 
 def test_replaced_take_with_an_older_mtime_is_not_served_from_the_cache(tmp_path: Path) -> None:

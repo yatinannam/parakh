@@ -14,7 +14,12 @@ from parakh.report.html import write_report_html
 from parakh.report.model import JudgeReport, Report, load_report, write_report_json
 from parakh.report.rescore import rescore_report
 from parakh.scenario import ScenarioError, load_scenario
-from parakh.tts.recordings import REAL_ROOT, RecordingError, recording_status
+from parakh.tts.recordings import (
+    REAL_ROOT,
+    RecordingError,
+    check_recordings,
+    recording_status,
+)
 
 
 def _default_compare_dir(run_dirs: list[Path]) -> Path:
@@ -154,7 +159,11 @@ def recordings_status(
     paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")],
     real_dir: Annotated[Path, typer.Option(help="Where the recordings live.")] = REAL_ROOT,
 ) -> None:
-    """Show which turns have a recording under data/real. Exits 2 when any is missing."""
+    """Show which turns have a recording under data/real, and check each one locally.
+
+    Exits 2 when a turn has no recording, or one that is silent or cannot be decoded. A clip
+    whose length does not fit its line gets a CHECK line but does not change the exit code.
+    """
     files: list[Path] = []
     for path in paths:
         files.extend(sorted(path.rglob("*.yaml")) if path.is_dir() else [path])
@@ -163,6 +172,7 @@ def recordings_status(
         try:
             scenario = load_scenario(file)
             status = recording_status(scenario, real_dir)
+            checks = check_recordings(scenario, real_dir)
         except (ScenarioError, RecordingError) as exc:
             raise fail(str(exc)) from exc
         if len(files) > 1:
@@ -170,6 +180,12 @@ def recordings_status(
         for turn in status.turns:
             found = "found" if turn.path is not None else "MISSING"
             typer.echo(f'turn {turn.index + 1:02d}: {found}  {turn.expected}  "{turn.say}"')
+        for number, check in enumerate(checks, start=1):
+            if check is not None and check.error is not None:
+                typer.echo(f"turn {number:02d}: ERROR  {check.error}")
+                complete = False
+            elif check is not None and check.warning is not None:
+                typer.echo(f"turn {number:02d}: CHECK  {check.warning}")
         for extra in status.unused:
             typer.echo(f"unused: {extra}")
         complete = complete and status.complete
