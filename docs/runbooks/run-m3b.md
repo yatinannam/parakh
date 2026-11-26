@@ -166,7 +166,7 @@ Yatin recorded the four Hinglish scenarios of [`record-real.md`](record-real.md)
 
 The procedure:
 1. Check each scenario's clips: `uv run parakh recordings status scenarios/hinglish/<file>`. It exits 2 while a turn is missing or silent.
-2. Check the content as well. `recordings status` cannot tell a clip of the wrong line. On 2026-11-26 the `hindi-numbers` and `correction` folders held each other's clips. A local faster-whisper pass under `parakh heavy run` found it, and the folders were swapped back.
+2. Read any `CHECK` line. On 2026-11-26 the `hindi-numbers` and `correction` folders held each other's clips. A local faster-whisper pass under `parakh heavy run` found it, and the folders were swapped back. Since `8e4d14e`, `recordings status` decodes each clip locally and flags one whose length does not fit its line; it flags both swapped folders.
 3. Start the agent with local STT: `uv run --group agent python -m agents.clinic_agent --profile hi --stt local`. It takes the heavy-model lock, so no Parler process may run at the same time. It needs about 1.2 GB of free memory; Chrome stayed open.
 4. Run the scenarios under `clean` and `phone`: `uv run parakh run <folder> --agent ws://127.0.0.1:8765 --real --preset clean --preset phone`.
 5. Expect completed runs with `real_audio: true` and the judge skipped (D20). The agent log must show no Groq STT request.
