@@ -36,6 +36,18 @@ The free tier may use inputs for training and human review, so the judge sends s
 
 `rpd: 20` in `src/parakh/judge/judge.yaml` is conservative. Check AI Studio for the project's real limit and raise it there if it is higher.
 
+## Hugging Face (Parler benchmark, optional)
+
+Only the Indic Parler-TTS benchmark in `tools/parler_bench/` uses it. Parakh itself never does. The model `ai4bharat/indic-parler-tts` (Apache-2.0) is gated, with automatic approval.
+
+1. Sign up at <https://huggingface.co> with an email. No card is needed. If one is asked for at any step, stop (EC-17).
+2. While logged in, open <https://huggingface.co/ai4bharat/indic-parler-tts> and accept the model's terms. Access is granted at once.
+3. In **Settings, Access Tokens**, create a token with the **Read** role.
+4. Put it in `.env` as `HF_TOKEN=...`. `.env` stays out of git.
+5. Check it with `uv run python -m tools.check_keys`. It prints `hf_token: set` or `hf_token: not set (optional)` and never the value.
+
+The benchmark's only Hugging Face requests are the model download (about 3.75 GB) and a lookup of the model revision. It synthesises the sentences on the laptop. Its synthetic clips then go to Groq Whisper for the intelligibility check.
+
 ## OpenRouter (Task 1 only)
 
 Used only to run Calibrate's text simulation inside WSL. Its key never goes into this repo's `.env`; see [`calibrate-wsl.md`](calibrate-wsl.md).

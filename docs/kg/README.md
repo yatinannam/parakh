@@ -28,14 +28,18 @@ flowchart LR
   cli["CLI"]
   degrader["Degrader"]
   end_state_adapter["EndStateAdapter"]
+  heavy_lock["Heavy-model lock"]
   judge["LLM judge"]
   mock_hms["Mock HMS"]
   normalizer["Script-tolerant normaliser"]
+  parler_bench["Parler benchmark"]
   quota["Quota guard"]
+  recordings["Real recordings + gate"]
   report["Report"]
   report_compare["Comparison page"]
   scenario["Scenario loader"]
   scenario_pack["Hinglish scenario pack"]
+  scenario_pack_kn_ta["Kannada and Tamil packs"]
   score_bargein["Barge-in scorer"]
   score_latency["Latency scorer"]
   score_task["Task success"]
@@ -74,6 +78,8 @@ flowchart LR
   ci -->|calls| t_no_emoji
   cli -->|calls| budget
   cli -->|calls| call_driver
+  cli -->|calls| heavy_lock
+  cli -->|calls| recordings
   cli -->|calls| report_compare
   degrader -->|produces| call_driver
   end_state_adapter -->|calls| mock_hms
@@ -82,12 +88,17 @@ flowchart LR
   judge -->|calls| x_gemini
   judge -->|calls| x_groq
   normalizer -->|depends_on| x_indic_translit
+  parler_bench -->|depends_on| heavy_lock
+  parler_bench -->|calls| x_groq
+  parler_bench -->|calls| x_parler
   quota -->|depends_on| budget
   quota -->|constrained_by| x_groq
+  recordings -->|produces| call_driver
   report -->|produces| report_compare
   report -->|depends_on| x_whisper
   scenario -->|produces| tts_cache
   scenario_pack -->|depends_on| scenario
+  scenario_pack_kn_ta -->|depends_on| scenario
   score_bargein -->|produces| report
   score_latency -->|produces| report
   score_task -->|depends_on| end_state_adapter
@@ -97,11 +108,13 @@ flowchart LR
   t_calibrate_eval -->|calls| x_calibrate
   t_calibrate_eval -->|calls| x_openrouter
   t_check_keys -->|calls| x_groq
+  test_agent -->|depends_on| heavy_lock
   test_agent -->|calls| mock_hms
   test_agent -->|compatible_with| x_calibrate
   test_agent -->|depends_on| x_edge_tts
   test_agent -->|calls| x_groq
   test_agent -->|depends_on| x_pipecat
+  test_agent -->|depends_on| x_whisper
   transport_codec -->|compatible_with| test_agent
   transport_codec -->|depends_on| x_pipecat
   tts_cache -->|produces| degrader
@@ -136,7 +149,11 @@ flowchart TB
   d15[/"D15 M3 split into M3a and M3b"/]
   d16[/"D16 Judge models"/]
   d17[/"D17 Judge on by default"/]
+  d18[/"D18 One agent process per language"/]
+  d19[/"D19 Own Tamil romaniser"/]
   d2[/"D2 Calibrate text sim in WSL"/]
+  d20[/"D20 Real runs skip the judge"/]
+  d21[/"D21 Parler adoption thresholds"/]
   d3[/"D3 HMS = hospital mgmt system"/]
   d4[/"D4 Scripted caller"/]
   d5[/"D5 Test agent stack"/]
@@ -148,10 +165,12 @@ flowchart TB
   doc_contributing[("CONTRIBUTING")]
   doc_pipecat_evals[("pipecat.evals note")]
   doc_spec[("Design spec")]
+  heavy_lock["Heavy-model lock"]
   judge["LLM judge"]
   m3(("M3 Indic layer + judge"))
   mock_hms["Mock HMS"]
   normalizer["Script-tolerant normaliser"]
+  parler_bench["Parler benchmark"]
   quota["Quota guard"]
   r_alignment>"Turn alignment"]
   r_injection>"Judge prompt injection"]
@@ -163,9 +182,11 @@ flowchart TB
   r_supply_chain>"Supply chain (CI and hooks)"]
   r_timing>"Timing accuracy"]
   r_windows_install>"Windows install gaps"]
+  recordings["Real recordings + gate"]
   report["Report"]
   scenario["Scenario loader"]
   scenario_pack["Hinglish scenario pack"]
+  scenario_pack_kn_ta["Kannada and Tamil packs"]
   score_bargein["Barge-in scorer"]
   score_wer["WER scorer"]
   t_calibrate_eval["Calibrate free-model wrapper"]
@@ -198,23 +219,39 @@ flowchart TB
   d15 -->|documented_in| doc_spec
   d16 -->|documented_in| doc_spec
   d17 -->|documented_in| doc_spec
+  d18 -->|documented_in| doc_spec
+  d19 -->|documented_in| doc_spec
+  d20 -->|documented_in| doc_spec
+  d21 -->|documented_in| doc_spec
   d9 -->|mitigates| r_license
   degrader -->|mitigates| r_license
+  heavy_lock -->|constrained_by| c_cpu
   judge -->|constrained_by| c_synthetic
   judge -->|decided_by| d16
   judge -->|decided_by| d17
+  judge -->|decided_by| d20
   judge -->|decided_by| d6
   judge -->|mitigates| r_injection
   m3 -->|decided_by| d15
   mock_hms -->|decided_by| d3
+  normalizer -->|decided_by| d19
   normalizer -->|mitigates| r_script
+  parler_bench -->|constrained_by| c_free
+  parler_bench -->|constrained_by| c_synthetic
+  parler_bench -->|decided_by| d21
   quota -->|constrained_by| c_free
   quota -->|mitigates| r_quota
   r_license -->|documented_in| doc_contributing
   r_llm_behaviour -->|documented_in| doc_calibrate
+  recordings -->|constrained_by| c_synthetic
+  recordings -->|decided_by| d10
+  recordings -->|decided_by| d20
+  recordings -->|mitigates| r_privacy
   report -->|mitigates| r_llm_behaviour
   scenario -->|decided_by| d4
   scenario_pack -->|decided_by| d9
+  scenario_pack_kn_ta -->|decided_by| d18
+  scenario_pack_kn_ta -->|decided_by| d9
   score_bargein -->|mitigates| r_timing
   score_wer -->|decided_by| d11
   score_wer -->|mitigates| r_alignment
@@ -223,6 +260,7 @@ flowchart TB
   t_calibrate_eval -->|decided_by| d2
   t_check_keys -->|constrained_by| c_secrets
   t_kg_render -->|decided_by| d8
+  test_agent -->|decided_by| d18
   test_agent -->|decided_by| d5
   test_agent -->|mitigates| r_llm_behaviour
   transport_codec -->|mitigates| r_alignment
@@ -280,9 +318,13 @@ flowchart LR
   end
   subgraph g_m3[" "]
     m3(("M3 Indic layer + judge"))
+    heavy_lock["Heavy-model lock"]
     judge["LLM judge"]
+    parler_bench["Parler benchmark"]
     quota["Quota guard"]
+    recordings["Real recordings + gate"]
     scenario_pack["Hinglish scenario pack"]
+    scenario_pack_kn_ta["Kannada and Tamil packs"]
   end
   subgraph g_m4[" "]
     m4(("M4 HMS adapter + CI e2e"))

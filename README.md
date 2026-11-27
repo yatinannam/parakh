@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](.python-version)
 
-A test harness for voice agents that serve Indian callers: Hinglish code-mixing, phone-quality audio and interruptions.
+A test harness for voice agents that serve Indian callers: Hinglish, Kannada-English and Tamil-English code-mixing, phone-quality audio and interruptions.
 
-Voice agents built for Indian callers break in ways that generic tests do not show. Callers mix Hindi and English in one sentence, they call over narrowband phone lines, and they cut in. Generic scoring also misreports what does work: an agent whose speech-to-text writes a correct Hinglish turn in Devanagari gets a word error rate of 100 % against a Roman-script reference. Parakh plays a scripted synthetic caller to an agent in real time, records both directions, and measures response latency and script-tolerant recognition accuracy on the agent's own transcript. Five telephone-line presets (band-limited 8 kHz G.711 mu-law audio, babble and street-like noise, packet loss, clipping) degrade the caller's audio the way a phone line does, a scheduled barge-in tests whether the agent stops talking when the caller cuts in, and a comparison page shows how the agent degrades from a clean line to a bad one. It runs on a CPU-only laptop and uses free API tiers only.
+Voice agents built for Indian callers break in ways that generic tests do not show. Callers mix Hindi, Kannada or Tamil with English in one sentence, they call over narrowband phone lines, and they cut in. Generic scoring also misreports what does work: an agent whose speech-to-text writes a correct Hinglish turn in Devanagari gets a word error rate of 100 % against a Roman-script reference. Parakh plays a scripted synthetic caller to an agent in real time, records both directions, and measures response latency and script-tolerant recognition accuracy on the agent's own transcript. Five telephone-line presets (band-limited 8 kHz G.711 mu-law audio, babble and street-like noise, packet loss, clipping) degrade the caller's audio the way a phone line does, a scheduled barge-in tests whether the agent stops talking when the caller cuts in, and a comparison page shows how the agent degrades from a clean line to a bad one. It runs on a CPU-only laptop and uses free API tiers only.
 
 ## Results from the first run
 
@@ -82,6 +82,46 @@ All 14 scenarios of [`scenarios/hinglish/`](scenarios/hinglish/) ran against the
 
 These numbers come from one agent on one laptop against free tiers. They show what Parakh measures and are not a benchmark of any provider.
 
+## Results from Kannada-English and Tamil-English (M3b)
+
+The packs [`scenarios/kannada_en/`](scenarios/kannada_en/) and [`scenarios/tamil_en/`](scenarios/tamil_en/) have six scenarios each. They ran under `clean` on 2026-11-25 against the clinic agent with the matching language profile ([M3b runbook](docs/runbooks/run-m3b.md)).
+
+| Measure | Kannada-English | Tamil-English |
+|---|---|---|
+| Scenarios completed | 6 of 6, one after a re-run | 6 of 6, one after a re-run |
+| Mean loose WER, rescored with the final normaliser | 51.7 % (58.0 % as run) | 43.8 % (49.8 % as run) |
+| English-heavy caller | 13.8 % | 22.2 % |
+| Turns left out because Whisper wrote them in Urdu or Arabic script | 2 of 24 | 7 of 24 |
+| Agent LLM use | 44 requests, 36,707 tokens | 47 requests, 43,119 tokens |
+
+- **Recognition is the bottleneck.** The Hinglish pack scored 6.3 %. Word alignment shows that most Kannada and Tamil errors are words Whisper misheard ("Allah Allah, hat again Allah" for "illa illa, hattu gante alla"), not spellings the normaliser missed.
+- **Script drift silenced the agent.** Whisper wrote some goodbyes in Urdu script, the agent's LLM replied in that script, and the Kannada and Tamil voices cannot read it, so the agent went silent (EC-92). A prompt rule now keeps replies in the scripts the voice reads; both affected scenarios then completed.
+- **The Tamil figure covers fewer turns.** Turns in Urdu or Arabic script are left out of loose WER and listed in the report, so compare the packs together with that count.
+- **The judge's rubric needs a Kannada and Tamil sentence.** In a spot check of 8 calls it marked down a Tamil reply in the caller's own language, and scored English replies to callers who used English words below its own rubric. A `judge-v2` rubric is flagged for review.
+
+## Real recordings (M3b)
+
+Synthetic caller audio is cleaner than real speech, so Parakh can also play your own voice reading the scripted lines ([`record-real.md`](docs/runbooks/record-real.md)). Save one file per turn as `data/real/<scenario_id>/turn-01.m4a` (any format ffmpeg reads), check the clips, start the agent with local speech recognition, and run with `--real`:
+
+```
+uv run parakh recordings status scenarios/hinglish/clinic-book-hinglish-01.yaml
+uv run --group agent python -m agents.clinic_agent --profile hi --stt local --port 8765
+uv run parakh run scenarios/hinglish/clinic-book-hinglish-01.yaml --agent ws://127.0.0.1:8765 --real
+```
+
+The audio never leaves the machine:
+- `--real` accepts only an agent URL on `127.0.0.1`, `localhost` or `::1`. It refuses redirects and checks that the connected peer is a loopback address.
+- Parakh sends silence until the agent reports a local speech-to-text model (`stt_model` starting `local:`). An agent that reports another model, or none within 5 s, ends the run `real_data_refused` (exit 2) before any recorded frame is sent.
+- The judge is skipped, and `data/real/` and `runs/` are gitignored.
+- The agent's own LLM (Groq, for the clinic agent) still receives the text transcript of what you said. Record only the scripted line, in a room with no other voices.
+- Never run `--real` through a port forward, which makes a remote agent look local.
+
+The author recorded 4 Hinglish scenarios (16 clips) on 2026-11-26. All 8 runs, under `clean` and `phone`, completed through the local-STT agent, with no Groq speech-to-text request in the agent logs. Through the same agent, real speech scored 61.3 % mean loose WER against 33.8 % for the synthetic caller. The local `small` model is itself far weaker than Groq's Whisper, so these figures measure it as much as the speech.
+
+## Indic Parler-TTS (pending)
+
+edge-tts is the only caller voice engine so far, and its audio terms are unclear, so the public scenario pack ships text, not audio. [Indic Parler-TTS](https://huggingface.co/ai4bharat/indic-parler-tts) (Apache-2.0) could supply publishable audio and an offline fallback. [`tools/parler_bench/`](tools/parler_bench/README.md) benchmarks it on the CPU in its own uv project, so torch never enters Parakh's lock or CI. Parler is adopted only if it reaches a real-time factor of 10 or less, a peak memory of 6 GB or less, and a loose WER of 25 % or less in each of Hindi, Kannada and Tamil when Groq Whisper transcribes its clips (D21). The model is gated with automatic approval, so it needs a free Hugging Face read token (`HF_TOKEN`, see the [API keys runbook](docs/runbooks/api-keys.md)). The benchmark has not run yet: it needs about 7 GB of free memory.
+
 ## Quick start
 
 Prerequisites:
@@ -134,6 +174,13 @@ uv run parakh run scenarios/hinglish/clinic-book-hinglish-01.yaml --agent ws://1
 
 That writes one run directory per preset under `runs/<batch_id>/` and `runs/<batch_id>/compare.html`. The [M2 runbook](docs/runbooks/run-m2.md) covers batches, the comparison page and the run log.
 
+For the Kannada-English or Tamil-English pack, start the agent with the matching profile, which sets its speech-to-text language hint and its voice. One agent process serves one language; a run against the wrong profile proceeds with the warning `agent language hi does not match scenario language kn-en`.
+
+```
+uv run --group agent python -m agents.clinic_agent --profile kn --port 8765
+uv run parakh run scenarios/kannada_en --agent ws://127.0.0.1:8765 --preset clean
+```
+
 ## Degradation presets and barge-in
 
 Each preset adds one factor to the one before it. The seed is the sha256 of the scenario id and the preset, so a rerun degrades the same way.
@@ -158,7 +205,7 @@ To hear a preset on one clip: `uv run parakh degrade clip.wav --preset bad_line`
 
 **Comparison page.** `compare.html` has one table per scenario with a column per preset (status, strict and loose WER, latency p50 and p95, stop latency, did-not-yield count, false barge-ins and a link to the run's report) and bar charts of loose WER and latency p50 by preset. It is rewritten after every run of a batch, so a stopped batch still leaves a page. `compare.json` holds the same numbers.
 
-## Scenario pack
+## Scenario packs
 
 [`scenarios/hinglish/`](scenarios/hinglish/) holds 14 synthetic clinic-booking scenarios that share one frozen clock (`2026-11-19T10:00:00+05:30`, so "kal" is 2026-11-20). Each has a `goal`, which the judge reads. They cover the M1 baseline and the M2 barge-in scenario (turns frozen), a second doctor, out-of-hours and slot queries, a spoken correction, "double" and "triple" digits, phone numbers in Hindi number words, an English-heavy caller, a Devanagari script, a barge-in that corrects the time, fast (+25 %) and slow (-20 %) callers with fillers, and a request for a doctor the clinic does not have. The runbook lists each scenario with its voice and purpose.
 
@@ -174,6 +221,8 @@ uv run parakh run scenarios/hinglish --agent ws://127.0.0.1:8765 --preset clean 
 
 `--resume` skips every (scenario, preset) pair that already has a `completed` report in that batch and runs the rest. The comparison page shows the newest report per pair. Use it after a run ends `rate_limited` (the agent reported a Groq 429), after Ctrl+C, or after the laptop slept mid-call.
 
+[`scenarios/kannada_en/`](scenarios/kannada_en/) and [`scenarios/tamil_en/`](scenarios/tamil_en/) hold six scenarios each (M3b), with the same clinic and clock: a booking, a second doctor for a son, a barge-in that corrects the time, the phone number in Kannada or Tamil number words, the caller's lines in Kannada or Tamil script, and an English-heavy caller. Run each against an agent with the matching `--profile`. Phone numbers are distinct across all 26 scenarios.
+
 ## LLM judge (advisory)
 
 Parakh asks an LLM to rate each call, because WER and latency cannot show whether the agent did its job. The judge is advisory: it never changes a run's status or the exit code.
@@ -184,7 +233,8 @@ Parakh asks an LLM to rate each call, because WER and latency cannot show whethe
 - **Robust to bad replies.** The judge runs in JSON object mode at temperature 0. An invalid reply is retried (4 attempts per provider), then the next provider is tried, then the result is `judge_error` with a reason that names the failing field. A transcript that contains instructions is treated as data and flagged.
 - **Statuses.** `ok`, `skipped` (nothing to judge, or no key), `judge_error` and `rate_limited`.
 - **Cached and reproducible.** Verdicts are cached in `.cache/judge/` by provider, model, prompt version and payload, and the report records the model id, the model version and the prompt version (`judge-v1`).
-- **Quota guard.** A token bucket and a daily counter per model keep Parakh inside the free limits. On HTTP 429 it honours `Retry-After` (and gives up at once if that is over 60 s); on HTTP 402 it disables the provider and never retries.
+- **Never on real recordings.** A `--real` run's judge is `skipped` before any request.
+- **Quota guard.** A token bucket and a daily counter per model keep Parakh inside the free limits, for requests and, on Groq, for tokens (8,000 a minute and 200,000 a day for the judge model). On HTTP 429 it honours `Retry-After` (and gives up at once if that is over 60 s); on HTTP 402 it disables the provider and never retries.
 
 `parakh run` judges by default; pass `--no-judge` to skip it. `parakh judge <run dir>...` rates finished runs, or re-rates them after a rubric change (`--force` ignores the cache). It exits 2 when any report ends `judge_error` or `rate_limited`.
 
@@ -192,7 +242,9 @@ Parakh asks an LLM to rate each call, because WER and latency cannot show whethe
 
 | Command | What it does | Options |
 |---|---|---|
-| `parakh run SCENARIO --agent URL` | Synthesises the caller audio (cached), runs real-time calls for each scenario and preset, scores them, and writes `report.json` and `report.html` to a new run directory per run. More than one run (several presets, or a scenario directory) is a batch: runs go in `runs/<batch_id>/` and `compare.html` and `compare.json` are rewritten after every run. | `--agent` ws:// or wss:// URL (required). `--preset` (repeatable, or `all`; default `clean`): `clean`, `phone`, `phone_noisy`, `phone_lossy`, `bad_line`. `--runs-dir` (default `runs`). `--agent-rate` sample rate sent to the agent (default 16000). `--cache-dir` (default `.cache/tts`). `--judge/--no-judge` (default on) rates each run with the advisory judge. `--resume BATCH_DIR` skips the pairs that already completed in that batch. |
+| `parakh run SCENARIO --agent URL` | Synthesises the caller audio (cached), runs real-time calls for each scenario and preset, scores them, and writes `report.json` and `report.html` to a new run directory per run. More than one run (several presets, or a scenario directory) is a batch: runs go in `runs/<batch_id>/` and `compare.html` and `compare.json` are rewritten after every run. | `--agent` ws:// or wss:// URL (required). `--preset` (repeatable, or `all`; default `clean`): `clean`, `phone`, `phone_noisy`, `phone_lossy`, `bad_line`. `--runs-dir` (default `runs`). `--agent-rate` sample rate sent to the agent (default 16000). `--cache-dir` (default `.cache/tts`). `--judge/--no-judge` (default on) rates each run with the advisory judge. `--resume BATCH_DIR` skips the pairs that already completed in that batch. `--real` plays your recordings from `data/real/` instead of synthetic audio, only to a local agent with local speech-to-text, and skips the judge. |
+| `parakh recordings status PATH...` | For scenario files or directories, lists each turn's recording as found or missing, and the files that match no turn. Decodes each recording on this machine: `ERROR` for a silent or undecodable file, `CHECK` for a clip far too short or too long for its line. Exits 2 when a turn is missing, silent or undecodable; `CHECK` is advice only. | `--real-dir` (default `data/real`). |
+| `parakh heavy run OWNER -- CMD...` | Runs a command while holding the heavy-model lock, so Parler and Whisper never load together. Exits with the command's code, or 2 when the lock is held (the message names the holder and its PID). | |
 | `parakh degrade CLIP --preset P` | Degrades one 16-bit mono WAV with a preset and writes `<clip>.<preset>.wav`; prints the SNR, lost frames and clipped samples. | `--preset` (required). `--out` output path. `--rate` output sample rate (default 16000). `--seed` (default 0). `--cache-dir` (default `.cache/tts`). |
 | `parakh compare RUN_DIR...` | Builds `compare.html` and `compare.json` from existing run directories, for example to join runs from several batches. | `--out` directory for the page (default: the common parent of the run directories). |
 | `parakh judge RUN_DIR...` | Rates finished runs with the advisory judge, then rewrites `report.json` and `report.html`. Exits 2 when any report ends `judge_error` or `rate_limited`. | `--force` asks again even when a verdict is cached. |
@@ -202,7 +254,7 @@ Parakh asks an LLM to rate each call, because WER and latency cannot show whethe
 | `parakh budget PATH...` | Estimates Groq STT and LLM requests and audio seconds for scenario files or directories, against the free-tier limits. Exits 2 if over. | `--preset` (repeatable, or `all`), because the estimate scales with the number of runs. |
 | `parakh version` | Prints the Parakh version. | |
 
-The estimate counts 3 STT and 3 LLM requests per caller turn, plus one LLM request for the agent's greeting, times the number of presets. It also gives agent LLM tokens (900 per request, measured at 811 in M3a) and one judge call per run. That is a guide, not a bound: the clinic agent's STT runs once per VAD segment, tool calls add LLM turns, and noise presets can add STT requests when the agent's VAD reacts to noise. The seven M2 runs used 54 STT and 63 LLM requests against an estimate of 84 and 91.
+The estimate counts 3 STT and 3 LLM requests per caller turn, plus one LLM request for the agent's greeting, times the number of presets. It also gives agent LLM tokens (900 per request, measured at 811 in M3a and 874 in M3b), one judge call per run, and judge tokens (1,100 per call). That is a guide, not a bound: the clinic agent's STT runs once per VAD segment, tool calls add LLM turns, and noise presets can add STT requests when the agent's VAD reacts to noise. The seven M2 runs used 54 STT and 63 LLM requests against an estimate of 84 and 91.
 
 Exit codes of `parakh run`; a batch exits with the highest code of its runs. Every status still writes `report.json` and `report.html`. Barge-in results do not change the exit code until the M4 thresholds.
 
@@ -210,7 +262,7 @@ Exit codes of `parakh run`; a batch exits with the highest code of its runs. Eve
 |---|---|
 | 0 | `completed`: every caller turn was played and answered, or the agent hung up after answering the last one. |
 | 1 | `agent_hung_up_early`: the agent closed the socket before the first caller turn. |
-| 2 | `turn_timeout`, `call_timeout`, `agent_disconnected`, `agent_unreachable`, `protocol_error`, `internal_error`, `rate_limited` (the agent reported a 429; resumable), `interrupted` (Ctrl+C: the partial report and the comparison are written first), or any status when the caller could not keep its 20 ms pace (`timing_unreliable`). |
+| 2 | `turn_timeout`, `call_timeout`, `agent_disconnected`, `agent_unreachable`, `protocol_error`, `internal_error`, `rate_limited` (the agent reported a 429; resumable), `interrupted` (Ctrl+C: the partial report and the comparison are written first), `real_data_refused` (a `--real` run whose agent did not prove local speech-to-text; no recorded audio was sent), or any status when the caller could not keep its 20 ms pace (`timing_unreliable`). |
 
 Errors found before a call starts (unknown preset, a URL that is not ws:// or wss://, an invalid scenario, ffmpeg missing, caller audio that edge-tts cannot synthesise or ffmpeg cannot decode) print a message without a traceback, write no run directory and exit 2. `tts build` exits 2 the same way for an invalid scenario, a synthesis or decode failure and a missing ffmpeg, and `report` for a `report.json` that is missing, not UTF-8 or not a valid report.
 
@@ -247,6 +299,8 @@ Two worked examples, both checked against the current code:
 | `9845 012 345` (Whisper) | adjacent digit groups joined | `9845012345` |
 
 The normaliser has a golden file of 269 pairs: 200 that must match (Hinglish, loanwords, variants, numbers), 55 that must not, and 14 known gaps kept as strict expected failures ([`tests/golden/normalizer_pairs.yaml`](tests/golden/normalizer_pairs.yaml)). Hypothesis property tests check that normalising twice gives the same result, that tokens are ASCII, and that matching is reflexive and symmetric. Spec [section 6.7](docs/superpowers/specs/2026-11-15-parakh-design.md#67-scoring) gives the full rules.
+
+**Kannada-English and Tamil-English (M3b).** The normaliser takes the scenario language. The script of each word picks its romaniser: Devanagari and Kannada go through ITRANS, and Tamil through Parakh's own table, because `indic-transliteration` writes எனக்கு as `èனghghu`. Tamil script does not mark voicing, so the Tamil table voices a stop by context (ம்ப `mb`, a single க between vowels `g`), and `ta-en` collapses `b`/`p`, `d`/`t` and `g`/`k` in the loose key while keeping the dental and retroflex stops and ழ and ல apart. Each language has its own number words (Kannada and Tamil 0 to 100 in both scripts, plus English) and its own variant table, and a word is never a number outside its language: `ondu` is 1 only in Kannada-English. Kannada and Tamil numerals become digits. The Hinglish output is frozen token for token. Two more golden files hold 163 Kannada and 181 Tamil entries, including 13 and 24 known gaps.
 
 ## Architecture
 
@@ -337,7 +391,7 @@ limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 | M1 | One Hinglish scenario, clean audio, Pipecat clinic test agent, latency and strict and loose WER, JSON and HTML report | Complete (2026-11-17) |
 | M2 | Degradation presets (telephone band, 8 kHz, G.711 mu-law, noise, packet loss, clipping), barge-in with stop latency, comparison page, batch runs | Complete (2026-11-21) |
 | M3a | Hinglish pack of 14 scenarios, normaliser hardened on 269 golden pairs, quota guard and resume, advisory LLM judge | Complete (2026-11-23) |
-| M3b | Kannada-English and Tamil-English scenarios, a small real-recording set, the Indic Parler-TTS benchmark, the heavy-model lock | Next |
+| M3b | Kannada-English and Tamil-English scenarios, a small real-recording set, the Indic Parler-TTS benchmark, the heavy-model lock | In progress: all done except the Parler benchmark, which needs about 7 GB of free memory |
 | M4 | Mock hospital management system and end-state adapter for deterministic task success; end-to-end CI workflow | Planned |
 | M5 | Public release: scenario pack, comparison run across presets and agent setups | Planned |
 
@@ -346,23 +400,25 @@ limits: { max_turns: 12, response_timeout_s: 15, call_timeout_s: 180 }
 ```
 src/parakh/
   scenario/            Scenario model and YAML loader
-  tts/                 edge-tts caller audio, ffmpeg decoding, content-addressed cache
+  tts/                 edge-tts caller audio, ffmpeg decoding, content-addressed cache, real recordings
   degrade/             Mu-law codec, band-pass, noise, packet loss, seeds, the five presets
-  caller/              Call driver: pacer, playback clock, turn machine, recorder, caller line (degraded turns and noise bed)
-  transport/           Pipecat protobuf codec, RTVI parsing, WebSocket connection
-  score/               Latency, barge-in stop latency, script-tolerant normaliser, strict and loose WER
-  report/              report.json model, report.html, and the comparison page across presets
+  caller/              Call driver: pacer, playback clock, turn machine, recorder, caller line (degraded turns and noise bed), the real-data gate
+  transport/           Pipecat protobuf codec, RTVI parsing, WebSocket connection, loopback checks
+  score/               Latency, barge-in stop latency, script-tolerant normaliser (Devanagari, Kannada and Tamil romanisers, per-language numbers), strict and loose WER
+  report/              report.json model, report.html, the comparison page across presets, rescoring
   judge/               Advisory LLM judge: prompt, strict scores, providers (judge.yaml), cache, fallback
   budget/              Groq usage estimate, the remote_call() guard, token bucket, daily counter and 429 backoff
   audio.py             WAV, dBFS, resampling, framing, silence trim
-  run.py               One scored run, batch runs and the exit code
-  cli.py               Command-line interface (cli_report.py: compare, report, judge; cli_util.py: helpers)
-agents/clinic_agent/   Pipecat test agent: Silero VAD, Groq STT and LLM, edge-tts
-scenarios/hinglish/    The 14-scenario Hinglish pack
+  heavy.py             The heavy-model lock (Parler and Whisper never load together)
+  run.py               One scored run and the exit code (batch.py: preflight and batch runs)
+  cli.py               Command-line interface (cli_report.py: compare, report, judge, rescore, recordings; cli_util.py: helpers)
+agents/clinic_agent/   Pipecat test agent: Silero VAD, Groq or local faster-whisper STT, Groq LLM, edge-tts; hi, kn and ta profiles
+scenarios/             The Hinglish (14), Kannada-English (6) and Tamil-English (6) packs
+data/real/             Your recordings of the caller turns; gitignored, never leave the machine
 tests/unit/            Unit tests; no network, no keys
 tests/integration/     Real-time calls against an in-process fake Pipecat agent
-tests/golden/          Normaliser pairs that must and must not match
-tools/                 no_emoji, kg_render, check_keys; calibrate_eval (WSL only)
+tests/golden/          Normaliser pairs that must and must not match, per language
+tools/                 no_emoji, kg_render, check_keys, whisper_check; calibrate_eval (WSL only); parler_bench (own uv project)
 docs/                  Spec, plans, research, runbooks, reviews, knowledge graph
 .github/               CI workflow and Dependabot config
 ```
@@ -397,6 +453,8 @@ CI runs on Ubuntu and Windows and installs ffmpeg. Unit and integration tests ne
 | [M1 runbook](docs/runbooks/run-m1.md) | Running the agent and the scenario, reading the report, troubleshooting, the run log. |
 | [M2 runbook](docs/runbooks/run-m2.md) | The five presets, batch runs, the comparison page, what the M2 runs showed, Groq requests per run, troubleshooting, the run log. |
 | [M3a runbook](docs/runbooks/run-m3a.md) | The Hinglish pack, the judge, resume, measured Groq use, what the M3a runs showed, judge calibration, the run log. |
+| [M3b runbook](docs/runbooks/run-m3b.md) | The Kannada-English and Tamil-English packs, agent profiles, what the runs showed, the judge spot check, real recordings against synthetic runs, local STT speed, the run log. |
+| [Real recordings runbook](docs/runbooks/record-real.md) | Recording your own voice, naming and checking the files, running with `--real`, and what stays on the machine. |
 | [Calibrate analysis](docs/research/2026-11-15-calibrate-analysis.md) | Task 1: what Calibrate covers and lacks, the free-model run, and the verdict. |
 | [`pipecat.evals` note](docs/research/2026-11-16-pipecat-evals-note.md) | What Pipecat's eval harness does and needs, and decision D14. |
 | [Knowledge graph](docs/kg/README.md) | `graph.yaml` plus generated Mermaid views of the pipeline, governance and milestones. |
@@ -406,7 +464,7 @@ CI runs on Ubuntu and Windows and installs ffmpeg. Unit and integration tests ne
 - **Free tiers only.** Groq and Gemini free tiers; OpenRouter `:free` models only for the Calibrate comparison. Any step that asks for a card is out of scope.
 - **Synthetic data only to hosted APIs.** Some free tiers may train on inputs. Scenarios, caller scripts and patient records are synthetic. Real recordings (a person reading synthetic scripts) stay on the local machine under `data/real/`, which is gitignored.
 - **No secrets in git.** `.env` is gitignored, gitleaks runs in pre-commit and CI, and GitHub push protection is on. Agent URLs are stripped of credentials, query and fragment wherever Parakh stores or prints them.
-- **CPU only.** Local models run on CPU and never at the same time.
+- **CPU only.** Local models run on CPU and never at the same time: every process that loads faster-whisper or Indic Parler-TTS holds one lock file, `.cache/locks/heavy-model.lock`.
 - **No emoji** in any tracked file, enforced by `tools/no_emoji.py`.
 
 ## Relationship to Calibrate
